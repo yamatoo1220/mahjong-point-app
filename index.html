@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>雀魂スコア集計 & リアルタイム精算マネージャー</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-100 text-slate-800 p-3 md:p-8">
+  <div id="app" class="max-w-5xl mx-auto space-y-6">
+
+    <header class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+      <div class="flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <h1 class="text-xl font-black text-slate-800 flex items-center gap-2">
+            🀄 雀魂スコア集計 & 精算マネージャー
+          </h1>
+          <p class="text-xs text-slate-500 mt-0.5">ルーム共有 ＆ リアルタイム同期対応</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="flex bg-slate-100 p-1 rounded-lg border text-xs font-bold">
+            <button @click="switchGameMode('4p')" :class="gameMode === '4p' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="px-2.5 py-1 rounded transition">
+              4人打
+            </button>
+            <button @click="switchGameMode('3p')" :class="gameMode === '3p' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="px-2.5 py-1 rounded transition">
+              3人打 (サンマ)
+            </button>
+          </div>
+
+          <div class="flex bg-slate-100 p-1 rounded-lg border text-xs font-bold">
+            <button @click="currentTab = 'active'" :class="currentTab === 'active' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="px-3 py-1 rounded-md transition">
+              🎮 対局中 ({{ activeHistory.length }})
+            </button>
+            <button @click="currentTab = 'archives'" :class="currentTab === 'archives' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="px-3 py-1 rounded-md transition">
+              📚 過去の対戦 ({{ sessionArchives.length }})
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-xs">
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-2.5 h-2.5 rounded-full" :class="roomId ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'"></span>
+          <span v-if="roomId" class="font-bold text-slate-700">
+            ルーム: <span class="text-blue-600 font-mono text-sm">#{{ roomId }}</span> (同期中)
+          </span>
+          <span v-else class="text-slate-500 font-medium">ローカルモード (未接続)</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button v-if="!roomId" @click="createRoom" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg transition">
+            ＋ 新規ルーム作成
+          </button>
+          <button v-if="!roomId" @click="joinRoomPrompt" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg border transition">
+            ルーム番号で参加
+          </button>
+          <button v-if="roomId" @click="copyRoomUrl" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1">
+            📋 招待リンクをコピー
+          </button>
+          <button v-if="roomId" @click="leaveRoom" class="text-rose-500 hover:underline px-2 py-1">
+            退室
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main v-show="currentTab === 'active'" class="space-y-6">
+
+      <section class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            現在の総合累計スコア ({{ gameMode === '4p' ? '4人麻雀' : '3人麻雀' }})
+          </h2>
+          <button @click="openFinishModal" :disabled="activeHistory.length === 0" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm flex items-center gap-1">
+            🏁 対局を終了して精算
+          </button>
+        </div>
+        <div class="grid gap-3" :class="gameMode === '4p' ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'">
+          <div v-for="(p, idx) in activePlayers" :key="idx" class="p-3 rounded-lg border bg-slate-50 flex flex-col justify-between">
+            <span class="text-xs font-bold text-slate-600 truncate">{{ p }}</span>
+            <div class="mt-2 flex items-baseline justify-between">
+              <span class="text-lg font-black font-mono" :class="totalPointsWithBonus[idx] >= 0 ? 'text-blue-600' : 'text-rose-600'">
+                {{ totalPointsWithBonus[idx] > 0 ? '+' : '' }}{{ totalPointsWithBonus[idx].toFixed(1) }} <span class="text-xs font-normal text-slate-500">pt</span>
+              </span>
+              <span class="text-xs font-bold font-mono" :class="totalMoney[idx] >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                {{ totalMoney[idx] > 0 ? '+' : '' }}{{ totalMoney[idx].toLocaleString() }}円
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <div class="space-y-6">
+
+          <section class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+            <div class="flex justify-between items-center border-b pb-2">
+              <h3 class="font-bold text-sm text-slate-700">⚙️ 次の半荘のルール設定</h3>
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 block mb-1">プリセット読込</label>
+              <select v-model="selectedPresetIndex" @change="applyPreset" class="w-full text-xs border rounded p-1.5 bg-slate-50">
+                <option v-for="(preset, idx) in currentPresets" :key="idx" :value="idx">{{ preset.name }}</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-slate-500 text-xs block">ルール名（記録用）</label>
+              <input type="text" v-model="currentRule.name" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-xs text-slate-700 font-bold bg-white">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <label class="text-slate-500 block">持ち点</label>
+                <input type="number" v-model.number="currentRule.startingPoints" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-slate-700 font-mono font-bold" step="1000">
+              </div>
+              <div>
+                <label class="text-slate-500 block">返し点</label>
+                <input type="number" v-model.number="currentRule.returnPoints" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-slate-700 font-mono font-bold" step="1000">
+              </div>
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-500 block mb-1">
+                ウマ ({{ gameMode === '4p' ? '1着 / 2着 / 3着 / 4着' : '1着 / 2着 / 3着' }})
+              </label>
+              <div class="grid gap-1" :class="gameMode === '4p' ? 'grid-cols-4' : 'grid-cols-3'">
+                <input v-for="(u, uIdx) in currentRule.uma" :key="uIdx" type="number" v-model.number="currentRule.uma[uIdx]" @change="syncStateToFirebase" class="border rounded p-1 text-center text-xs font-mono font-bold">
+              </div>
+            </div>
+
+            <button @click="saveNewPreset" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold py-1.5 rounded transition border">
+              現在の設定をプリセット保存
+            </button>
+          </section>
+
+          <section class="bg-amber-50/70 p-4 rounded-xl border border-amber-200 space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="font-bold text-sm text-amber-900 flex items-center gap-1.5">🎁 祝儀・任意pt移動</h3>
+              <span class="text-[10px] px-1.5 py-0.5 rounded font-bold" :class="isBonusValid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'">
+                合計: {{ bonusSum > 0 ? '+' : '' }}{{ bonusSum }} pt
+              </span>
+            </div>
+
+            <div class="space-y-2">
+              <div v-for="(p, idx) in activePlayers" :key="idx" class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-slate-700 w-24 truncate">{{ p }}</span>
+                <div class="flex items-center gap-1 flex-1">
+                  <input type="number" v-model.number="bonusPoints[idx]" @input="syncStateToFirebase" class="w-full border rounded px-2 py-1 text-sm text-right font-mono bg-white" placeholder="0" step="1">
+                  <span class="text-xs text-slate-500">pt</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl space-y-4">
+            <div class="flex justify-between items-center border-b border-emerald-200 pb-2">
+              <h3 class="font-bold text-sm text-emerald-900">💸 精算レート</h3>
+              <div class="flex items-center gap-1 text-xs">
+                <span class="text-emerald-800 font-semibold">1pt =</span>
+                <input type="number" v-model.number="rate" @input="syncStateToFirebase" class="w-16 border rounded px-1.5 py-0.5 text-right font-mono font-bold bg-white" step="10">
+                <span class="text-emerald-800">円</span>
+              </div>
+            </div>
+
+            <div v-if="activeHistory.length === 0" class="text-xs text-slate-500">
+              半荘を記録すると送金ルートが計算されます
+            </div>
+            <div v-else class="space-y-2">
+              <div class="text-[11px] text-emerald-700 font-semibold flex justify-between">
+                <span>最短送金ルート</span>
+                <span>合計 {{ settlements.length }} 回</span>
+              </div>
+              <div v-for="(s, idx) in settlements" :key="idx" class="bg-white p-2 rounded-lg border border-emerald-100 flex justify-between items-center text-xs shadow-sm">
+                <div class="flex items-center gap-1.5 font-medium">
+                  <span class="text-rose-600 font-bold">{{ s.from }}</span>
+                  <span class="text-slate-400">➔</span>
+                  <span class="text-emerald-600 font-bold">{{ s.to }}</span>
+                </div>
+                <span class="font-bold text-sm font-mono text-slate-800">{{ s.amount.toLocaleString() }} 円</span>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+        <div class="lg:col-span-2 space-y-6">
+
+          <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <div class="flex flex-wrap justify-between items-center border-b pb-2 gap-2">
+              <div>
+                <h3 class="font-bold text-sm text-slate-700">
+                  📝 第 {{ activeHistory.length + 1 }} 回戦 スコア入力
+                </h3>
+                <span class="text-[11px] text-blue-600 font-medium">適用: {{ currentRule.name || 'カスタムルール' }}</span>
+              </div>
+              <span class="text-xs font-mono font-bold px-2 py-1 rounded" :class="isPointsValid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'">
+                合計: {{ totalInputPoints.toLocaleString() }} / {{ (currentRule.startingPoints * activePlayers.length).toLocaleString() }} 点
+              </span>
+            </div>
+
+            <div class="space-y-3">
+              <div v-for="(p, idx) in activeInput" :key="idx" class="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                <div class="flex items-center gap-2">
+                  <input type="text" v-model="playerNames[idx]" @change="syncStateToFirebase" placeholder="名前" class="border rounded px-2 py-1 text-xs font-bold w-28 bg-white">
+                  <div class="flex-1 flex items-center justify-end gap-1">
+                    <input type="number" v-model.number="p.rawScore" @input="syncStateToFirebase" class="w-28 border rounded px-2 py-1 text-sm font-mono font-bold text-right bg-white" step="100">
+                    <span class="text-xs text-slate-500">点</span>
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-end gap-1 pt-1 border-t border-slate-200/60">
+                  <div class="flex gap-0.5">
+                    <button @click="adjustScore(idx, -10000)" class="btn-score btn-score-10k-minus">-1万</button>
+                    <button @click="adjustScore(idx, 10000)" class="btn-score btn-score-10k-plus">+1万</button>
+                  </div>
+                  <div class="flex gap-0.5 ml-1">
+                    <button @click="adjustScore(idx, -1000)" class="btn-score btn-score-1k-minus">-1千</button>
+                    <button @click="adjustScore(idx, 1000)" class="btn-score btn-score-1k-plus">+1千</button>
+                  </div>
+                  <div class="flex gap-0.5 ml-1">
+                    <button @click="adjustScore(idx, -100)" class="btn-score btn-score-100-minus">-百</button>
+                    <button @click="adjustScore(idx, 100)" class="btn-score btn-score-100-plus">+百</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button @click="commitGame" :disabled="!isPointsValid" class="w-full bg-blue-600 text-white font-bold py-2.5 rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed shadow">
+              この半荘を記録する
+            </button>
+          </section>
+
+          <section v-if="allHistorySorted.length > 0" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+            <h3 class="font-bold text-sm text-slate-700 border-b pb-2">📜 対局履歴</h3>
+
+            <div class="space-y-3">
+              <div v-for="game in allHistorySorted" :key="game.id" 
+                   class="border rounded-lg p-3 transition" 
+                   :class="game.excluded ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-300'">
+                
+                <div class="flex justify-between items-center text-xs pb-1 mb-2 border-b border-slate-200">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-slate-700">{{ game.title }}</span>
+                    <span class="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-medium">
+                      {{ game.mode === '3p' ? '3人麻雀' : '4人麻雀' }}
+                    </span>
+                    <span class="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-medium">
+                      ルール: {{ game.ruleName }}
+                    </span>
+                    <span v-if="game.excluded" class="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-semibold">
+                      除外中
+                    </span>
+                  </div>
+                  <div>
+                    <button v-if="!game.excluded" @click="toggleExclude(game.id, true)" class="text-rose-500 hover:text-rose-700 text-[11px] font-medium">
+                      計算から除外
+                    </button>
+                    <button v-else @click="toggleExclude(game.id, false)" class="text-blue-600 hover:text-blue-800 text-[11px] font-bold">
+                      ↩ 復元する
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid gap-1 text-xs" :class="game.mode === '3p' ? 'grid-cols-3' : 'grid-cols-4'">
+                  <div v-for="res in game.results" :key="res.name" class="p-2 rounded border" :class="game.excluded ? 'bg-slate-200/50' : 'bg-white'">
+                    <div class="flex justify-between text-[11px] text-slate-500">
+                      <span>{{ res.rankDisplay }}</span>
+                      <span>{{ res.rawScore.toLocaleString() }}点</span>
+                    </div>
+                    <div class="font-bold text-slate-800 truncate mt-0.5">{{ res.name }}</div>
+                    <div class="font-mono font-bold mt-1" :class="res.point >= 0 ? 'text-blue-600' : 'text-rose-600'">
+                      {{ res.point > 0 ? '+' : '' }}{{ res.point.toFixed(1) }} pt
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+      </div>
+    </main>
+
+    <main v-show="currentTab === 'archives'" class="space-y-4">
+      <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <div class="flex justify-between items-center border-b pb-3 mb-4">
+          <h2 class="font-bold text-md text-slate-800 flex items-center gap-2">
+            📚 保存された過去の対戦結果一覧
+          </h2>
+          <span class="text-xs text-slate-500">{{ sessionArchives.length }} 件の履歴</span>
+        </div>
+
+        <div v-if="sessionArchives.length === 0" class="text-center py-12 text-slate-400 text-sm">
+          まだ保存された対戦結果はありません。「対局を終了して精算」から保存できます。
+        </div>
+
+        <div v-else class="space-y-4">
+          <div v-for="session in sessionArchives" :key="session.id" class="border rounded-xl p-4 bg-slate-50 space-y-3">
+            <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-2">
+              <div>
+                <span class="font-black text-sm text-slate-800">{{ session.date }}</span>
+                <span class="text-xs text-slate-500 ml-2">({{ session.mode === '3p' ? '3人麻雀' : '4人麻雀' }} / {{ session.totalGames }}半荘 / 1pt={{ session.rate }}円)</span>
+              </div>
+              <button @click="deleteArchive(session.id)" class="text-rose-500 hover:text-rose-700 text-xs">削除</button>
+            </div>
+
+            <div class="grid gap-2" :class="session.players.length === 3 ? 'grid-cols-3' : 'grid-cols-2 md:grid-cols-4'">
+              <div v-for="p in session.players" :key="p.name" class="bg-white p-2.5 rounded-lg border">
+                <div class="font-bold text-xs text-slate-700 truncate">{{ p.name }}</div>
+                <div class="flex justify-between items-baseline mt-1 font-mono">
+                  <span class="text-xs font-bold" :class="p.point >= 0 ? 'text-blue-600' : 'text-rose-600'">
+                    {{ p.point > 0 ? '+' : '' }}{{ p.point.toFixed(1) }} pt
+                  </span>
+                  <span class="text-xs font-bold" :class="p.money >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                    {{ p.money > 0 ? '+' : '' }}{{ p.money.toLocaleString() }}円
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="session.settlements && session.settlements.length > 0" class="bg-emerald-50/60 p-2.5 rounded-lg border border-emerald-100 text-xs space-y-1">
+              <div class="text-[11px] font-bold text-emerald-800 mb-1">精算結果:</div>
+              <div v-for="(st, stIdx) in session.settlements" :key="stIdx" class="flex justify-between items-center text-slate-700 font-medium">
+                <div>
+                  <span class="text-rose-600">{{ st.from }}</span>
+                  <span class="text-slate-400 mx-1">➔</span>
+                  <span class="text-emerald-600">{{ st.to }}</span>
+                </div>
+                <span class="font-mono font-bold text-slate-800">{{ st.amount.toLocaleString() }} 円</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div v-if="isFinishModalOpen" class="modal-overlay">
+      <div class="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+        <div class="text-center space-y-1">
+          <div class="text-3xl">🎉</div>
+          <h2 class="text-xl font-black text-slate-800">対局お疲れ様でした！</h2>
+          <p class="text-xs text-slate-500">全 {{ activeHistory.length }} 半荘の最終集計結果です</p>
+        </div>
+
+        <div class="border rounded-xl overflow-hidden text-xs">
+          <table class="w-full text-left">
+            <thead class="bg-slate-100 text-slate-600 font-bold border-b">
+              <tr>
+                <th class="p-2.5">プレイヤー</th>
+                <th class="p-2.5 text-right">確定ポイント</th>
+                <th class="p-2.5 text-right">収支 (円)</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              <tr v-for="(name, idx) in activePlayers" :key="idx" class="hover:bg-slate-50">
+                <td class="p-2.5 font-bold text-slate-800">{{ name }}</td>
+                <td class="p-2.5 text-right font-mono font-bold" :class="totalPointsWithBonus[idx] >= 0 ? 'text-blue-600' : 'text-rose-600'">
+                  {{ totalPointsWithBonus[idx] > 0 ? '+' : '' }}{{ totalPointsWithBonus[idx].toFixed(1) }} pt
+                </td>
+                <td class="p-2.5 text-right font-mono font-bold text-sm" :class="totalMoney[idx] >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                  {{ totalMoney[idx] > 0 ? '+' : '' }}{{ totalMoney[idx].toLocaleString() }} 円
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl space-y-2">
+          <div class="text-xs font-bold text-emerald-900 flex justify-between">
+            <span>最短送金ルート</span>
+            <span>{{ settlements.length }} 回</span>
+          </div>
+          <div v-if="settlements.length === 0" class="text-xs text-emerald-700">送金はありません（全員0円）</div>
+          <div v-for="(s, idx) in settlements" :key="idx" class="bg-white p-2 rounded border border-emerald-100 flex justify-between text-xs font-medium">
+            <div>
+              <span class="text-rose-600 font-bold">{{ s.from }}</span>
+              <span class="text-slate-400 mx-1">➔</span>
+              <span class="text-emerald-600 font-bold">{{ s.to }}</span>
+            </div>
+            <span class="font-bold font-mono text-slate-800">{{ s.amount.toLocaleString() }} 円</span>
+          </div>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button @click="isFinishModalOpen = false" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition">
+            対局に戻る
+          </button>
+          <button @click="archiveAndReset" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow">
+            結果を保存して対局を終了
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

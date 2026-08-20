@@ -1,0 +1,33 @@
+.btn-score {
+  padding: 0.25rem 0.375rem;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 0.25rem;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-score-10k-minus { background-color: #f3e8ff; color: #7e22ce; }
+.btn-score-10k-minus:hover { background-color: #e9d5ff; }
+.btn-score-10k-plus { background-color: #9333ea; color: #ffffff; }
+.btn-score-10k-plus:hover { background-color: #7e22ce; }
+
+.btn-score-1k-minus { background-color: #e0f2fe; color: #0369a1; }
+.btn-score-1k-minus:hover { background-color: #bae6fd; }
+.btn-score-1k-plus { background-color: #2563eb; color: #ffffff; }
+.btn-score-1k-plus:hover { background-color: #1d4ed8; }
+
+.btn-score-100-minus { background-color: #e2e8f0; color: #334155; }
+.btn-score-100-minus:hover { background-color: #cbd5e1; }
+.btn-score-100-plus { background-color: #334155; color: #ffffff; }
+.btn-score-100-plus:hover { background-color: #1e293b; }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 50;
+}
