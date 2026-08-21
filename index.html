@@ -4,8 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>雀魂スコア集計 & リアルタイム精算マネージャー</title>
+  <!-- Tailwind CSS & Vue.js (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <!-- Firebase SDK (v9 compat) -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
   <link rel="stylesheet" href="style.css">
@@ -13,25 +15,29 @@
 <body class="bg-slate-100 text-slate-800 p-3 md:p-8">
   <div id="app" class="max-w-5xl mx-auto space-y-6">
 
+    <!-- ヘッダー & ルーム管理バー -->
     <header class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
       <div class="flex flex-wrap justify-between items-center gap-3">
         <div>
           <h1 class="text-xl font-black text-slate-800 flex items-center gap-2">
             🀄 雀魂スコア集計 & 精算マネージャー
           </h1>
-          <p class="text-xs text-slate-500 mt-0.5">ルーム共有 ＆ リアルタイム同期対応</p>
+          <p class="text-xs text-slate-500 mt-0.5">
+            {{ isSessionStarted ? `${sessionConfig.gameMode === '4p' ? '4人麻雀' : '3人麻雀'} 進行中` : '対局を開始してください' }}
+            <span v-if="isReadOnly" class="ml-2 bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded text-[10px]">閲覧専用モード</span>
+          </p>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <div class="flex bg-slate-100 p-1 rounded-lg border text-xs font-bold">
-            <button @click="switchGameMode('4p')" :class="gameMode === '4p' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="px-2.5 py-1 rounded transition">
-              4人打
-            </button>
-            <button @click="switchGameMode('3p')" :class="gameMode === '3p' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="px-2.5 py-1 rounded transition">
-              3人打 (サンマ)
-            </button>
-          </div>
+          <!-- 対局開始・リセットボタン -->
+          <button v-if="!isSessionStarted && !isReadOnly" @click="openStartModal" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-sm">
+            ▶ 新しい対局を開始
+          </button>
+          <button v-else-if="isHost || !roomId" @click="confirmResetSession" class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-3 py-1.5 rounded-lg text-xs border transition">
+            🔄 対局リセット
+          </button>
 
+          <!-- タブ切り替え -->
           <div class="flex bg-slate-100 p-1 rounded-lg border text-xs font-bold">
             <button @click="currentTab = 'active'" :class="currentTab === 'active' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'" class="px-3 py-1 rounded-md transition">
               🎮 対局中 ({{ activeHistory.length }})
@@ -43,20 +49,19 @@
         </div>
       </div>
 
+      <!-- ルーム接続ステータス & 招待UI -->
       <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-xs">
         <div class="flex items-center gap-2">
           <span class="inline-block w-2.5 h-2.5 rounded-full" :class="roomId ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'"></span>
           <span v-if="roomId" class="font-bold text-slate-700">
-            ルーム: <span class="text-blue-600 font-mono text-sm">#{{ roomId }}</span> (同期中)
+            ルーム: <span class="text-blue-600 font-mono text-sm">#{{ roomId }}</span>
+            <span class="text-slate-400 font-normal ml-1">({{ sessionConfig.controlMode === 'hostOnly' ? '代表者のみ入力' : '全員入力可能' }})</span>
           </span>
-          <span v-else class="text-slate-500 font-medium">ローカルモード (未接続)</span>
+          <span v-else class="text-slate-500 font-medium">ローカルモード (端末内保存)</span>
         </div>
 
         <div class="flex items-center gap-2">
-          <button v-if="!roomId" @click="createRoom" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg transition">
-            ＋ 新規ルーム作成
-          </button>
-          <button v-if="!roomId" @click="joinRoomPrompt" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg border transition">
+          <button v-if="!roomId && !isSessionStarted" @click="joinRoomPrompt" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg border transition">
             ルーム番号で参加
           </button>
           <button v-if="roomId" @click="copyRoomUrl" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1">
@@ -69,20 +74,39 @@
       </div>
     </header>
 
-    <main v-show="currentTab === 'active'" class="space-y-6">
+    <!-- ==================== 対局未開始ガイド ==================== -->
+    <div v-if="!isSessionStarted" class="bg-white p-8 rounded-xl border border-slate-200 text-center space-y-4 shadow-sm">
+      <div class="text-4xl">🀄</div>
+      <h2 class="text-lg font-black text-slate-800">麻雀を始める準備をしましょう！</h2>
+      <p class="text-xs text-slate-500 max-w-md mx-auto">
+        4人打・3人打の選択、参加メンバーの名前、ルーム共有設定を行って対局を開始してください。
+      </p>
+      <div class="flex justify-center gap-3 pt-2">
+        <button @click="openStartModal" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm transition shadow">
+          ▶ 新しい対局を開始する
+        </button>
+        <button @click="joinRoomPrompt" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-sm border transition">
+          ルームに参加する
+        </button>
+      </div>
+    </div>
 
+    <!-- ==================== 1. 対局中画面 ==================== -->
+    <main v-show="isSessionStarted && currentTab === 'active'" class="space-y-6">
+
+      <!-- 累計スコアボード -->
       <section class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div class="flex justify-between items-center mb-3">
           <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wider">
-            現在の総合累計スコア ({{ gameMode === '4p' ? '4人麻雀' : '3人麻雀' }})
+            現在の総合累計スコア ({{ sessionConfig.gameMode === '4p' ? '4人麻雀' : '3人麻雀' }})
           </h2>
-          <button @click="openFinishModal" :disabled="activeHistory.length === 0" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm flex items-center gap-1">
+          <button v-if="!isReadOnly" @click="openFinishModal" :disabled="activeHistory.length === 0" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm flex items-center gap-1">
             🏁 対局を終了して精算
           </button>
         </div>
-        <div class="grid gap-3" :class="gameMode === '4p' ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'">
+        <div class="grid gap-3" :class="sessionConfig.gameMode === '4p' ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'">
           <div v-for="(p, idx) in activePlayers" :key="idx" class="p-3 rounded-lg border bg-slate-50 flex flex-col justify-between">
-            <span class="text-xs font-bold text-slate-600 truncate">{{ p }}</span>
+            <span class="text-xs font-bold text-slate-700 truncate">{{ p }}</span>
             <div class="mt-2 flex items-baseline justify-between">
               <span class="text-lg font-black font-mono" :class="totalPointsWithBonus[idx] >= 0 ? 'text-blue-600' : 'text-rose-600'">
                 {{ totalPointsWithBonus[idx] > 0 ? '+' : '' }}{{ totalPointsWithBonus[idx].toFixed(1) }} <span class="text-xs font-normal text-slate-500">pt</span>
@@ -97,49 +121,52 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
+        <!-- 左カラム: ルール / 祝儀 / 精算 -->
         <div class="space-y-6">
 
+          <!-- ルール設定 -->
           <section class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
             <div class="flex justify-between items-center border-b pb-2">
               <h3 class="font-bold text-sm text-slate-700">⚙️ 次の半荘のルール設定</h3>
             </div>
             <div>
               <label class="text-xs text-slate-500 block mb-1">プリセット読込</label>
-              <select v-model="selectedPresetIndex" @change="applyPreset" class="w-full text-xs border rounded p-1.5 bg-slate-50">
+              <select :disabled="isReadOnly" v-model="selectedPresetIndex" @change="applyPreset" class="w-full text-xs border rounded p-1.5 bg-slate-50 disabled:opacity-50">
                 <option v-for="(preset, idx) in currentPresets" :key="idx" :value="idx">{{ preset.name }}</option>
               </select>
             </div>
 
             <div>
               <label class="text-slate-500 text-xs block">ルール名（記録用）</label>
-              <input type="text" v-model="currentRule.name" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-xs text-slate-700 font-bold bg-white">
+              <input :disabled="isReadOnly" type="text" v-model="currentRule.name" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-xs text-slate-700 font-bold bg-white disabled:opacity-50">
             </div>
 
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div>
                 <label class="text-slate-500 block">持ち点</label>
-                <input type="number" v-model.number="currentRule.startingPoints" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-slate-700 font-mono font-bold" step="1000">
+                <input :disabled="isReadOnly" type="number" v-model.number="currentRule.startingPoints" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-slate-700 font-mono font-bold disabled:opacity-50" step="1000">
               </div>
               <div>
                 <label class="text-slate-500 block">返し点</label>
-                <input type="number" v-model.number="currentRule.returnPoints" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-slate-700 font-mono font-bold" step="1000">
+                <input :disabled="isReadOnly" type="number" v-model.number="currentRule.returnPoints" @change="syncStateToFirebase" class="w-full border rounded p-1.5 mt-0.5 text-slate-700 font-mono font-bold disabled:opacity-50" step="1000">
               </div>
             </div>
 
             <div>
               <label class="text-xs text-slate-500 block mb-1">
-                ウマ ({{ gameMode === '4p' ? '1着 / 2着 / 3着 / 4着' : '1着 / 2着 / 3着' }})
+                ウマ ({{ sessionConfig.gameMode === '4p' ? '1着 / 2着 / 3着 / 4着' : '1着 / 2着 / 3着' }})
               </label>
-              <div class="grid gap-1" :class="gameMode === '4p' ? 'grid-cols-4' : 'grid-cols-3'">
-                <input v-for="(u, uIdx) in currentRule.uma" :key="uIdx" type="number" v-model.number="currentRule.uma[uIdx]" @change="syncStateToFirebase" class="border rounded p-1 text-center text-xs font-mono font-bold">
+              <div class="grid gap-1" :class="sessionConfig.gameMode === '4p' ? 'grid-cols-4' : 'grid-cols-3'">
+                <input :disabled="isReadOnly" v-for="(u, uIdx) in currentRule.uma" :key="uIdx" type="number" v-model.number="currentRule.uma[uIdx]" @change="syncStateToFirebase" class="border rounded p-1 text-center text-xs font-mono font-bold disabled:opacity-50">
               </div>
             </div>
 
-            <button @click="saveNewPreset" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold py-1.5 rounded transition border">
+            <button v-if="!isReadOnly" @click="saveNewPreset" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold py-1.5 rounded transition border">
               現在の設定をプリセット保存
             </button>
           </section>
 
+          <!-- 祝儀設定 -->
           <section class="bg-amber-50/70 p-4 rounded-xl border border-amber-200 space-y-3">
             <div class="flex items-center justify-between">
               <h3 class="font-bold text-sm text-amber-900 flex items-center gap-1.5">🎁 祝儀・任意pt移動</h3>
@@ -152,19 +179,20 @@
               <div v-for="(p, idx) in activePlayers" :key="idx" class="flex items-center gap-2">
                 <span class="text-xs font-semibold text-slate-700 w-24 truncate">{{ p }}</span>
                 <div class="flex items-center gap-1 flex-1">
-                  <input type="number" v-model.number="bonusPoints[idx]" @input="syncStateToFirebase" class="w-full border rounded px-2 py-1 text-sm text-right font-mono bg-white" placeholder="0" step="1">
+                  <input :disabled="isReadOnly" type="number" v-model.number="bonusPoints[idx]" @input="syncStateToFirebase" class="w-full border rounded px-2 py-1 text-sm text-right font-mono bg-white disabled:opacity-50" placeholder="0" step="1">
                   <span class="text-xs text-slate-500">pt</span>
                 </div>
               </div>
             </div>
           </section>
 
+          <!-- 精算レート & 送金ルート -->
           <section class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl space-y-4">
             <div class="flex justify-between items-center border-b border-emerald-200 pb-2">
               <h3 class="font-bold text-sm text-emerald-900">💸 精算レート</h3>
               <div class="flex items-center gap-1 text-xs">
                 <span class="text-emerald-800 font-semibold">1pt =</span>
-                <input type="number" v-model.number="rate" @input="syncStateToFirebase" class="w-16 border rounded px-1.5 py-0.5 text-right font-mono font-bold bg-white" step="10">
+                <input :disabled="isReadOnly" type="number" v-model.number="rate" @input="syncStateToFirebase" class="w-16 border rounded px-1.5 py-0.5 text-right font-mono font-bold bg-white disabled:opacity-50" step="10">
                 <span class="text-emerald-800">円</span>
               </div>
             </div>
@@ -190,9 +218,11 @@
 
         </div>
 
+        <!-- 右カラム: 半荘入力 & 対局履歴 -->
         <div class="lg:col-span-2 space-y-6">
 
-          <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+          <!-- スコア入力フォーム（閲覧モードでは非表示またはリードオンリー） -->
+          <section v-if="!isReadOnly" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
             <div class="flex flex-wrap justify-between items-center border-b pb-2 gap-2">
               <div>
                 <h3 class="font-bold text-sm text-slate-700">
@@ -205,10 +235,26 @@
               </span>
             </div>
 
+            <!-- 倍率指定バー -->
+            <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border text-xs">
+              <span class="font-bold text-slate-700 flex items-center gap-1">
+                🔥 この半荘のポイント倍率:
+              </span>
+              <div class="flex items-center gap-1">
+                <button v-for="m in [1, 1.5, 2, 3]" :key="m" @click="gameMultiplier = m" :class="gameMultiplier === m ? 'bg-blue-600 text-white font-bold' : 'bg-white text-slate-700 border hover:bg-slate-100'" class="px-2 py-1 rounded text-xs transition">
+                  x{{ m }}
+                </button>
+                <div class="flex items-center gap-0.5 ml-1">
+                  <input type="number" v-model.number="gameMultiplier" class="w-14 border rounded px-1 py-1 text-center font-mono font-bold text-xs bg-white" step="0.5" min="0.1">
+                  <span class="text-slate-500 font-bold">倍</span>
+                </div>
+              </div>
+            </div>
+
             <div class="space-y-3">
               <div v-for="(p, idx) in activeInput" :key="idx" class="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                <div class="flex items-center gap-2">
-                  <input type="text" v-model="playerNames[idx]" @change="syncStateToFirebase" placeholder="名前" class="border rounded px-2 py-1 text-xs font-bold w-28 bg-white">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-bold text-slate-800 w-32 truncate">{{ activePlayers[idx] }}</span>
                   <div class="flex-1 flex items-center justify-end gap-1">
                     <input type="number" v-model.number="p.rawScore" @input="syncStateToFirebase" class="w-28 border rounded px-2 py-1 text-sm font-mono font-bold text-right bg-white" step="100">
                     <span class="text-xs text-slate-500">点</span>
@@ -233,10 +279,17 @@
             </div>
 
             <button @click="commitGame" :disabled="!isPointsValid" class="w-full bg-blue-600 text-white font-bold py-2.5 rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed shadow">
-              この半荘を記録する
+              この半荘を記録する ({{ gameMultiplier !== 1 ? `x${gameMultiplier}倍適用` : '等倍' }})
             </button>
           </section>
 
+          <!-- 閲覧者用メッセージ -->
+          <div v-else class="bg-blue-50 border border-blue-200 p-4 rounded-xl text-center space-y-1">
+            <p class="text-xs font-bold text-blue-900">👀 閲覧専用モードで参加中</p>
+            <p class="text-[11px] text-blue-700">ホスト（代表者）がスコアを入力すると、自動でリアルタイム更新されます。</p>
+          </div>
+
+          <!-- 対局履歴 -->
           <section v-if="allHistorySorted.length > 0" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
             <h3 class="font-bold text-sm text-slate-700 border-b pb-2">📜 対局履歴</h3>
 
@@ -246,24 +299,27 @@
                    :class="game.excluded ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-300'">
                 
                 <div class="flex justify-between items-center text-xs pb-1 mb-2 border-b border-slate-200">
-                  <div class="flex items-center gap-2">
+                  <div class="flex flex-wrap items-center gap-1.5">
                     <span class="font-bold text-slate-700">{{ game.title }}</span>
+                    <span v-if="game.multiplier && game.multiplier !== 1" class="text-[10px] bg-rose-100 text-rose-700 font-bold px-1.5 py-0.5 rounded">
+                      🔥 x{{ game.multiplier }}倍
+                    </span>
                     <span class="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-medium">
                       {{ game.mode === '3p' ? '3人麻雀' : '4人麻雀' }}
                     </span>
                     <span class="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-medium">
-                      ルール: {{ game.ruleName }}
+                      {{ game.ruleName }}
                     </span>
                     <span v-if="game.excluded" class="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-semibold">
                       除外中
                     </span>
                   </div>
-                  <div>
+                  <div v-if="!isReadOnly">
                     <button v-if="!game.excluded" @click="toggleExclude(game.id, true)" class="text-rose-500 hover:text-rose-700 text-[11px] font-medium">
-                      計算から除外
+                      除外
                     </button>
                     <button v-else @click="toggleExclude(game.id, false)" class="text-blue-600 hover:text-blue-800 text-[11px] font-bold">
-                      ↩ 復元する
+                      ↩ 復元
                     </button>
                   </div>
                 </div>
@@ -289,6 +345,7 @@
       </div>
     </main>
 
+    <!-- ==================== 2. 過去の対戦結果画面 ==================== -->
     <main v-show="currentTab === 'archives'" class="space-y-4">
       <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
         <div class="flex justify-between items-center border-b pb-3 mb-4">
@@ -309,7 +366,7 @@
                 <span class="font-black text-sm text-slate-800">{{ session.date }}</span>
                 <span class="text-xs text-slate-500 ml-2">({{ session.mode === '3p' ? '3人麻雀' : '4人麻雀' }} / {{ session.totalGames }}半荘 / 1pt={{ session.rate }}円)</span>
               </div>
-              <button @click="deleteArchive(session.id)" class="text-rose-500 hover:text-rose-700 text-xs">削除</button>
+              <button v-if="!isReadOnly" @click="deleteArchive(session.id)" class="text-rose-500 hover:text-rose-700 text-xs">削除</button>
             </div>
 
             <div class="grid gap-2" :class="session.players.length === 3 ? 'grid-cols-3' : 'grid-cols-2 md:grid-cols-4'">
@@ -342,6 +399,82 @@
       </section>
     </main>
 
+    <!-- ==================== 対局開始セットアップモーダル ==================== -->
+    <div v-if="isStartModalOpen" class="modal-overlay">
+      <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">
+        <div class="text-center space-y-1">
+          <div class="text-3xl">🀄</div>
+          <h2 class="text-lg font-black text-slate-800">新しい対局を開始</h2>
+          <p class="text-xs text-slate-500">対戦形式とメンバーを設定します（対局中は固定されます）</p>
+        </div>
+
+        <div class="space-y-4 text-xs">
+          <!-- 形式選択 -->
+          <div>
+            <label class="block font-bold text-slate-700 mb-1.5">1. 対戦形式</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" @click="tempSetup.gameMode = '4p'" :class="tempSetup.gameMode === '4p' ? 'bg-blue-600 text-white font-bold border-blue-600' : 'bg-slate-50 text-slate-700 border-slate-200'" class="p-2.5 rounded-lg border text-center transition">
+                4人麻雀 (ヨンマ)
+              </button>
+              <button type="button" @click="tempSetup.gameMode = '3p'" :class="tempSetup.gameMode === '3p' ? 'bg-blue-600 text-white font-bold border-blue-600' : 'bg-slate-50 text-slate-700 border-slate-200'" class="p-2.5 rounded-lg border text-center transition">
+                3人麻雀 (サンマ)
+              </button>
+            </div>
+          </div>
+
+          <!-- メンバー入力 -->
+          <div>
+            <label class="block font-bold text-slate-700 mb-1.5">2. プレイヤー名入力</label>
+            <div class="grid gap-2" :class="tempSetup.gameMode === '4p' ? 'grid-cols-2' : 'grid-cols-3'">
+              <div v-for="idx in (tempSetup.gameMode === '4p' ? 4 : 3)" :key="idx">
+                <input type="text" v-model="tempSetup.playerNames[idx - 1]" :placeholder="`プレイヤー${String.fromCharCode(64 + idx)}`" class="w-full border rounded p-2 text-xs font-bold bg-slate-50 focus:bg-white">
+              </div>
+            </div>
+          </div>
+
+          <!-- 接続形式 -->
+          <div>
+            <label class="block font-bold text-slate-700 mb-1.5">3. 共有・同期形式</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" @click="tempSetup.connectionType = 'room'" :class="tempSetup.connectionType === 'room' ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'" class="p-2 rounded-lg border text-left transition">
+                <div class="font-bold">🌐 ルームを作成</div>
+                <div class="text-[10px] font-normal text-slate-500 mt-0.5">URLで他メンバーと同期</div>
+              </button>
+              <button type="button" @click="tempSetup.connectionType = 'local'" :class="tempSetup.connectionType === 'local' ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'" class="p-2 rounded-lg border text-left transition">
+                <div class="font-bold">📱 ローカル</div>
+                <div class="text-[10px] font-normal text-slate-500 mt-0.5">この端末1台で記録</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- ルーム作成時の権限選択 -->
+          <div v-if="tempSetup.connectionType === 'room'" class="p-3 bg-blue-50/50 rounded-xl border border-blue-100 space-y-2">
+            <label class="block font-bold text-blue-950 text-[11px]">4. ルーム操作権限の設定</label>
+            <div class="space-y-1.5">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" v-model="tempSetup.controlMode" value="hostOnly" class="text-blue-600">
+                <span class="text-slate-700 font-medium">代表者（あなた）のみ入力（他メンバーは閲覧のみ）</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" v-model="tempSetup.controlMode" value="all" class="text-blue-600">
+                <span class="text-slate-700 font-medium">参加メンバー全員が入力可能</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button @click="isStartModalOpen = false" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2.5 rounded-xl text-xs transition">
+            キャンセル
+          </button>
+          <button @click="confirmStartSession" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow">
+            対局を開始する
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 終了モーダル ==================== -->
     <div v-if="isFinishModalOpen" class="modal-overlay">
       <div class="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
         <div class="text-center space-y-1">

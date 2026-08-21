@@ -18,11 +18,32 @@ createApp({
   setup() {
     const currentTab = ref('active');
     const isFinishModalOpen = ref(false);
-    const gameMode = ref('4p'); // '4p' | '3p'
+    const isStartModalOpen = ref(false);
+    const isSessionStarted = ref(false);
+    const isHost = ref(false);
+    const hostKey = ref(null);
     const roomId = ref(null);
     let isRemoteUpdating = false;
 
-    // デフォルトプリセット
+    // 対戦設定（固定化）
+    const sessionConfig = ref({
+      gameMode: '4p', // '4p' | '3p'
+      controlMode: 'all', // 'all' | 'hostOnly'
+      hostKey: null
+    });
+
+    // 開始モーダル用一時設定
+    const tempSetup = ref({
+      gameMode: '4p',
+      playerNames: ["プレイヤーA", "プレイヤーB", "プレイヤーC", "プレイヤーD"],
+      connectionType: 'room',
+      controlMode: 'hostOnly'
+    });
+
+    // ポイント倍率
+    const gameMultiplier = ref(1);
+
+    // ルールプリセット
     const defaultPresets4P = [
       { name: "定番ルール1 (25-25 / 10-30)", startingPoints: 25000, returnPoints: 25000, uma: [30, 10, -10, -30] },
       { name: "Mリーグルール (25-30 / 10-30)", startingPoints: 25000, returnPoints: 30000, uma: [30, 10, -10, -30] }
@@ -52,10 +73,19 @@ createApp({
     const history = ref([]);
     const sessionArchives = ref([]);
 
-    const playerCount = computed(() => (gameMode.value === '4p' ? 4 : 3));
+    const playerCount = computed(() => (sessionConfig.value.gameMode === '4p' ? 4 : 3));
     const activePlayers = computed(() => playerNames.value.slice(0, playerCount.value));
     const activeInput = computed(() => currentInput.value.slice(0, playerCount.value));
-    const currentPresets = computed(() => (gameMode.value === '4p' ? presets4P.value : presets3P.value));
+    const currentPresets = computed(() => (sessionConfig.value.gameMode === '4p' ? presets4P.value : presets3P.value));
+
+    // 閲覧専用判定
+    const isReadOnly = computed(() => {
+      if (!roomId.value) return false;
+      if (sessionConfig.value.controlMode === 'hostOnly' && !isHost.value) {
+        return true;
+      }
+      return false;
+    });
 
     const activeHistory = computed(() => history.value.filter(g => !g.excluded));
 
@@ -79,13 +109,14 @@ createApp({
     const isBonusValid = computed(() => bonusSum.value === 0);
 
     // ==========================================
-    // Firebase リアルタイム同期ロジック
+    // Firebase 同期ロジック
     // ==========================================
     const syncStateToFirebase = () => {
-      if (isRemoteUpdating || !roomId.value) return;
+      if (isRemoteUpdating || !roomId.value || isReadOnly.value) return;
 
       const payload = {
-        gameMode: gameMode.value,
+        isSessionStarted: isSessionStarted.value,
+        sessionConfig: sessionConfig.value,
         currentRule: currentRule.value,
         rate: rate.value,
         playerNames: playerNames.value,
@@ -101,17 +132,14 @@ createApp({
 
     const listenToRoom = (id) => {
       roomId.value = id;
-      window.history.replaceState(null, '', `?room=${id}`);
 
       db.ref(`rooms/${id}`).on('value', (snapshot) => {
         const val = snapshot.val();
-        if (!val) {
-          syncStateToFirebase();
-          return;
-        }
+        if (!val) return;
 
         isRemoteUpdating = true;
-        if (val.gameMode) gameMode.value = val.gameMode;
+        isSessionStarted.value = !!val.isSessionStarted;
+        if (val.sessionConfig) sessionConfig.value = val.sessionConfig;
         if (val.currentRule) currentRule.value = val.currentRule;
         if (val.rate !== undefined) rate.value = val.rate;
         if (val.playerNames) playerNames.value = val.playerNames;
@@ -120,27 +148,67 @@ createApp({
         if (val.history) history.value = val.history;
         if (val.sessionArchives) sessionArchives.value = val.sessionArchives;
 
+        // ホスト判定（localStorageに保持したキーと突合）
+        const localHostKey = localStorage.getItem(`mahjong_host_${id}`);
+        if (val.sessionConfig?.hostKey && localHostKey === val.sessionConfig.hostKey) {
+          isHost.value = true;
+        } else {
+          isHost.value = false;
+        }
+
         setTimeout(() => {
           isRemoteUpdating = false;
         }, 100);
       });
     };
 
-    const createRoom = () => {
-      const newRoomId = Math.floor(1000 + Math.random() * 9000).toString();
-      listenToRoom(newRoomId);
-      syncStateToFirebase();
+    const openStartModal = () => {
+      tempSetup.value.playerNames = [...playerNames.value];
+      isStartModalOpen.value = true;
+    };
+
+    const confirmStartSession = () => {
+      sessionConfig.value.gameMode = tempSetup.value.gameMode;
+      sessionConfig.value.controlMode = tempSetup.value.controlMode;
+      playerNames.value = [...tempSetup.value.playerNames];
+
+      // プリセット適用
+      selectedPresetIndex.value = 0;
+      applyPreset();
+
+      history.value = [];
+      bonusPoints.value = [0, 0, 0, 0];
+      gameMultiplier.value = 1;
+      isSessionStarted.value = true;
+      isStartModalOpen.value = false;
+
+      if (tempSetup.value.connectionType === 'room') {
+        const newRoomId = Math.floor(1000 + Math.random() * 9000).toString();
+        const generatedHostKey = 'h_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        sessionConfig.value.hostKey = generatedHostKey;
+        isHost.value = true;
+        localStorage.setItem(`mahjong_host_${newRoomId}`, generatedHostKey);
+
+        window.history.replaceState(null, '', `?room=${newRoomId}`);
+        listenToRoom(newRoomId);
+        syncStateToFirebase();
+      } else {
+        roomId.value = null;
+        window.history.replaceState(null, '', window.location.pathname);
+      }
     };
 
     const joinRoomPrompt = () => {
       const code = prompt("参加する4桁のルーム番号を入力してください:");
       if (code && code.trim()) {
+        window.history.replaceState(null, '', `?room=${code.trim()}`);
         listenToRoom(code.trim());
       }
     };
 
     const copyRoomUrl = () => {
-      navigator.clipboard.writeText(window.location.href).then(() => {
+      const shareUrl = `${window.location.origin}${window.location.pathname}?room=${roomId.value}`;
+      navigator.clipboard.writeText(shareUrl).then(() => {
         alert("招待リンクをコピーしました！友人に共有してください。");
       });
     };
@@ -149,7 +217,16 @@ createApp({
       if (confirm("ルームから退室しますか？")) {
         if (roomId.value) db.ref(`rooms/${roomId.value}`).off();
         roomId.value = null;
+        isSessionStarted.value = false;
         window.history.replaceState(null, '', window.location.pathname);
+      }
+    };
+
+    const confirmResetSession = () => {
+      if (confirm("現在の対局設定をリセットし、最初からやり直しますか？")) {
+        isSessionStarted.value = false;
+        history.value = [];
+        syncStateToFirebase();
       }
     };
 
@@ -174,14 +251,6 @@ createApp({
 
     const resetInputPoints = () => {
       currentInput.value.forEach(p => p.rawScore = currentRule.value.startingPoints);
-    };
-
-    const switchGameMode = (mode) => {
-      if (gameMode.value === mode) return;
-      gameMode.value = mode;
-      selectedPresetIndex.value = 0;
-      applyPreset();
-      syncStateToFirebase();
     };
 
     const getNextCustomName = () => {
@@ -209,7 +278,7 @@ createApp({
         uma: [...currentRule.value.uma]
       };
 
-      if (gameMode.value === '4p') {
+      if (sessionConfig.value.gameMode === '4p') {
         presets4P.value.push(newPreset);
         selectedPresetIndex.value = presets4P.value.length - 1;
         localStorage.setItem("mahjong_presets4p_v6", JSON.stringify(presets4P.value));
@@ -222,13 +291,16 @@ createApp({
       syncStateToFirebase();
     };
 
-    // 半荘確定（同点ウマ・オカ山分け計算）
+    // ==========================================
+    // 半荘確定（同点ウマ山分け ＆ 倍率適用計算）
+    // ==========================================
     const commitGame = () => {
       if (!isPointsValid.value) return;
 
       const rule = currentRule.value;
       const appliedRuleName = rule.name?.trim() || getNextCustomName();
       const numPlayers = playerCount.value;
+      const mult = Number(gameMultiplier.value) || 1;
 
       const rawData = activeInput.value.map((p, idx) => ({
         name: playerNames.value[idx],
@@ -264,7 +336,7 @@ createApp({
         for (let k = i; k <= j; k++) {
           const p = sorted[k];
           const rawPoint = (p.rawScore - rule.returnPoints) / 1000;
-          const finalPoint = rawPoint + splitUmaOka;
+          const finalPoint = (rawPoint + splitUmaOka) * mult; // 倍率乗算
 
           results.push({
             rankDisplay: rankDisplay,
@@ -280,12 +352,14 @@ createApp({
       history.value.push({
         id: Date.now(),
         title: `第 ${activeHistory.value.length + 1} 回戦`,
-        mode: gameMode.value,
+        mode: sessionConfig.value.gameMode,
         ruleName: appliedRuleName,
+        multiplier: mult,
         results: results,
         excluded: false
       });
 
+      gameMultiplier.value = 1; // 次回用に等倍リセット
       resetInputPoints();
       syncStateToFirebase();
     };
@@ -382,7 +456,7 @@ createApp({
       const newArchive = {
         id: Date.now(),
         date: dateStr,
-        mode: gameMode.value,
+        mode: sessionConfig.value.gameMode,
         totalGames: activeHistory.value.length,
         rate: rate.value,
         players: activePlayers.value.map((name, idx) => ({
@@ -409,27 +483,25 @@ createApp({
     };
 
     onMounted(() => {
-      // URLパラメータからルーム番号を自動取得（例: ?room=1234）
       const urlParams = new URLSearchParams(window.location.search);
       const roomParam = urlParams.get('room');
 
       if (roomParam) {
         listenToRoom(roomParam);
-      } else {
-        // ローカル設定の復元
-        const saved4P = localStorage.getItem("mahjong_presets4p_v6");
-        const saved3P = localStorage.getItem("mahjong_presets3p_v6");
-        if (saved4P) presets4P.value = JSON.parse(saved4P);
-        if (saved3P) presets3P.value = JSON.parse(saved3P);
-        applyPreset();
       }
     });
 
     return {
       currentTab,
       isFinishModalOpen,
-      gameMode,
+      isStartModalOpen,
+      isSessionStarted,
+      isHost,
+      isReadOnly,
       roomId,
+      sessionConfig,
+      tempSetup,
+      gameMultiplier,
       currentPresets,
       selectedPresetIndex,
       currentRule,
@@ -450,12 +522,13 @@ createApp({
       totalPointsWithBonus,
       totalMoney,
       settlements,
-      createRoom,
+      openStartModal,
+      confirmStartSession,
       joinRoomPrompt,
       copyRoomUrl,
       leaveRoom,
+      confirmResetSession,
       syncStateToFirebase,
-      switchGameMode,
       adjustScore,
       applyPreset,
       saveNewPreset,
