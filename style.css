@@ -1,15 +1,26 @@
 @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&family=Noto+Sans+JP:wght@500;700;900&display=swap');
 
-html, body {
+:root {
+  background-color: #4c0519; /* 最深層の地肌を赤に固定（白抜け防止） */
+}
+
+html {
+  background-color: #4c0519;
+  min-height: 100%;
+}
+
+body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
   font-family: 'Noto Sans JP', sans-serif;
   background: radial-gradient(circle at 50% 30%, #881337 0%, #4c0519 60%, #1f0209 100%);
+  background-color: #4c0519;
   color: #0f172a;
-  touch-action: pan-y; /* 縦スクロールを優先 */
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
   overflow-x: hidden;
+  overscroll-behavior-y: none; /* スマホ端の白い引っ張りバウンスを抑制 */
 }
 
 .font-heading {
@@ -17,7 +28,7 @@ html, body {
 }
 
 /* ========================================================
-   流れる麻雀牌アニメーション背景（右から左へ）
+   流れる麻雀牌アニメーション背景（GPU負荷を最小化）
    ======================================================== */
 .bg-tile-animation-container {
   position: fixed;
@@ -25,10 +36,11 @@ html, body {
   display: flex;
   flex-direction: column;
   justify-content: space-around;
-  pointer-events: none; /* タッチイベントを透過し入力邪魔を防止 */
+  pointer-events: none;
   user-select: none;
   z-index: 0;
   overflow: hidden;
+  transform: translateZ(0);
 }
 
 .tile-row {
@@ -36,9 +48,10 @@ html, body {
   white-space: nowrap;
   font-size: clamp(45px, 6vw, 75px);
   color: #fbcfe8;
-  opacity: 0.35;
-  text-shadow: 0 0 12px rgba(0, 0, 0, 0.9), 2px 2px 4px rgba(0, 0, 0, 0.8);
+  opacity: 0.3;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
   will-change: transform;
+  transform: translate3d(0, 0, 0);
 }
 
 .tile-row span {
@@ -46,42 +59,42 @@ html, body {
   padding-right: 20px;
 }
 
-/* 右から左へ無限スクロールのアニメーションキーフレーム */
 @keyframes scrollLeft {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
 }
 
 .marquee-left-fast {
-  animation: scrollLeft 24s linear infinite;
+  animation: scrollLeft 28s linear infinite;
 }
 
 .marquee-left-medium {
-  animation: scrollLeft 34s linear infinite;
+  animation: scrollLeft 38s linear infinite;
 }
 
 .marquee-left-slow {
-  animation: scrollLeft 48s linear infinite;
+  animation: scrollLeft 52s linear infinite;
 }
 
 /* ========================================================
-   UI パネル & モーダル（スクロール対応）
+   UI パネル（カクつき・再描画バグ対策版）
    ======================================================== */
 .card-panel {
-  background-color: rgba(255, 255, 255, 0.97) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background-color: #ffffff !important; /* 負荷の高いブラーを外して完全な白カードに */
   border: 2.5px solid #0f172a !important;
   box-shadow: 4px 4px 0px #0f172a !important;
   position: relative;
   z-index: 1;
+  transform: translateZ(0); /* GPU常駐でスクロール時のチカチカを防止 */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
+/* モーダル */
 .modal-overlay {
   position: fixed;
   inset: 0;
   background-color: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -91,7 +104,6 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* スマホ等で画面からはみ出た場合にモーダル内部をスクロール */
 .modal-body-scroll {
   max-height: 90vh;
   overflow-y: auto;
