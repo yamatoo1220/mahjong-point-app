@@ -1,34 +1,75 @@
-/* 背景画像の設定とオーバーレイ */
+/* 深みのある高級感のある赤グラデーション背景 */
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #0f172a;
-  background-image: 
-    linear-gradient(rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.55)),
-    url('https://sozaino.site/wp-content/uploads/2023/12/okumono-mahjong-37-.png');
-  background-repeat: repeat;
-  background-position: center top;
-  background-size: 400px auto; /* PC・スマホ問わず見やすいサイズ感で固定 */
-  background-attachment: fixed; /* スクロールしても背景を固定 */
+  background: radial-gradient(circle at center, #991b1b 0%, #450a0a 100%);
+  background-attachment: fixed;
   color: #1e293b;
+  position: relative;
+  overflow-x: hidden;
 }
 
-/* スマホ用の微調整（柄の縮尺） */
+/* PC・タブレット向け：左端の麻雀装飾ライン */
+body::before {
+  content: "🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣";
+  position: fixed;
+  left: 12px;
+  top: 0;
+  bottom: 0;
+  width: 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  font-size: 24px;
+  opacity: 0.25;
+  color: #fef08a;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* PC・タブレット向け：右端の麻雀装飾ライン */
+body::after {
+  content: "🀆 🀛 🀒 🀂 🀣 🀅 🀚 🀑 🀁 🀢 🀄 🀙 🀐 🀀 🀡";
+  position: fixed;
+  right: 12px;
+  top: 0;
+  bottom: 0;
+  width: 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  font-size: 24px;
+  opacity: 0.25;
+  color: #fef08a;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* スマホ用（画面幅が狭いときは端の絵文字サイズと透明度を控えめにして邪魔にならないように調整） */
 @media (max-width: 640px) {
-  body {
-    background-size: 280px auto;
+  body::before, body::after {
+    font-size: 16px;
+    opacity: 0.15;
+    width: 20px;
   }
+  body::before { left: 4px; }
+  body::after { right: 4px; }
 }
 
-/* パネル（白背景カード）をすりガラス・高コントラスト化 */
+/* パネル（白背景カード）のコントラスト強化 */
 .bg-white {
-  background-color: rgba(255, 255, 255, 0.94) !important;
+  background-color: rgba(255, 255, 255, 0.96) !important;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(254, 240, 138, 0.2);
+  position: relative;
+  z-index: 1;
 }
 
-/* ボタンデザイン */
+/* ボタン等のスタイルはそのまま維持 */
 .btn-score {
   padding: 0.25rem 0.375rem;
   font-size: 11px;
@@ -52,11 +93,10 @@ body {
 .btn-score-100-plus { background-color: #334155; color: #ffffff; }
 .btn-score-100-plus:hover { background-color: #1e293b; }
 
-/* モーダル背景 */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
