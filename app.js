@@ -12,13 +12,14 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, computed, onMounted, watch } = Vue;
 
 createApp({
   setup() {
     const currentTab = ref('active');
     const isFinishModalOpen = ref(false);
     const isStartModalOpen = ref(false);
+    const isResumeModalOpen = ref(false);
     const isSessionStarted = ref(false);
     const isRoomClosed = ref(false);
     const isHost = ref(false);
@@ -26,15 +27,14 @@ createApp({
     const roomId = ref(null);
     let isRemoteUpdating = false;
 
-    // 対戦設定（固定化）
+    // 対戦設定
     const sessionConfig = ref({
-      gameMode: '4p', // '4p' | '3p'
-      controlMode: 'all', // 'all' | 'hostOnly'
-      status: 'active', // 'active' | 'closed'
+      gameMode: '4p',
+      controlMode: 'all',
+      status: 'active',
       hostKey: null
     });
 
-    // レートプリセット一覧
     const presetRates = [
       { label: "ノーレート", sub: "0円", value: 0 },
       { label: "テンイチ", sub: "10円", value: 10 },
@@ -42,7 +42,6 @@ createApp({
       { label: "テンピン", sub: "100円", value: 100 }
     ];
 
-    // 開始モーダル用一時設定
     const tempSetup = ref({
       gameMode: '4p',
       rate: 50,
@@ -55,10 +54,8 @@ createApp({
       tempSetup.value.rate = val;
     };
 
-    // ポイント倍率
     const gameMultiplier = ref(1);
 
-    // ルールプリセット
     const defaultPresets4P = [
       { name: "定番ルール1 (25-25 / 10-30)", startingPoints: 25000, returnPoints: 25000, uma: [30, 10, -10, -30] },
       { name: "Mリーグルール (25-30 / 10-30)", startingPoints: 25000, returnPoints: 30000, uma: [30, 10, -10, -30] }
@@ -88,12 +85,17 @@ createApp({
     const history = ref([]);
     const sessionArchives = ref([]);
 
+    // ページネーション & アコーディオン展開状態
+    const currentArchivePage = ref(1);
+    const itemsPerPage = 5;
+    const expandedArchiveIds = ref([]);
+    const cachedSessionState = ref(null);
+
     const playerCount = computed(() => (sessionConfig.value.gameMode === '4p' ? 4 : 3));
     const activePlayers = computed(() => playerNames.value.slice(0, playerCount.value));
     const activeInput = computed(() => currentInput.value.slice(0, playerCount.value));
     const currentPresets = computed(() => (sessionConfig.value.gameMode === '4p' ? presets4P.value : presets3P.value));
 
-    // 閲覧専用判定
     const isReadOnly = computed(() => {
       if (isRoomClosed.value) return true;
       if (!roomId.value) return false;
@@ -125,9 +127,82 @@ createApp({
     const isBonusValid = computed(() => bonusSum.value === 0);
 
     // ==========================================
+    // 過去ログページネーション & 勝者計算
+    // ==========================================
+    const totalPages = computed(() => {
+      return Math.ceil(sessionArchives.value.length / itemsPerPage) || 1;
+    });
+
+    const paginatedArchives = computed(() => {
+      const start = (currentArchivePage.value - 1) * itemsPerPage;
+      return sessionArchives.value.slice(start, start + itemsPerPage);
+    });
+
+    const toggleArchiveDetail = (id) => {
+      const idx = expandedArchiveIds.value.indexOf(id);
+      if (idx > -1) {
+        expandedArchiveIds.value.splice(idx, 1);
+      } else {
+        expandedArchiveIds.value.push(id);
+      }
+    };
+
+    const getTopPlayer = (session) => {
+      if (!session.players || session.players.length === 0) return { name: '-', point: 0 };
+      return [...session.players].sort((a, b) => b.point - a.point)[0];
+    };
+
+    // ==========================================
+    // ローカル自動バックアップ（タブ閉じ対策）
+    // ==========================================
+    const saveLocalBackup = () => {
+      if (isSessionStarted.value && !isRoomClosed.value) {
+        const state = {
+          isSessionStarted: isSessionStarted.value,
+          sessionConfig: sessionConfig.value,
+          currentRule: currentRule.value,
+          rate: rate.value,
+          playerNames: playerNames.value,
+          currentInput: currentInput.value,
+          bonusPoints: bonusPoints.value,
+          history: history.value,
+          sessionArchives: sessionArchives.value,
+          roomId: roomId.value
+        };
+        localStorage.setItem("mahjong_active_session_backup", JSON.stringify(state));
+      } else {
+        localStorage.removeItem("mahjong_active_session_backup");
+      }
+    };
+
+    const resumeCachedSession = () => {
+      if (cachedSessionState.value) {
+        const val = cachedSessionState.value;
+        isSessionStarted.value = val.isSessionStarted;
+        if (val.sessionConfig) sessionConfig.value = val.sessionConfig;
+        if (val.currentRule) currentRule.value = val.currentRule;
+        if (val.rate !== undefined) rate.value = val.rate;
+        if (val.playerNames) playerNames.value = val.playerNames;
+        if (val.currentInput) currentInput.value = val.currentInput;
+        if (val.bonusPoints) bonusPoints.value = val.bonusPoints;
+        if (val.history) history.value = val.history;
+        if (val.sessionArchives) sessionArchives.value = val.sessionArchives;
+        if (val.roomId) listenToRoom(val.roomId);
+      }
+      isResumeModalOpen.value = false;
+    };
+
+    const discardCachedSession = () => {
+      localStorage.removeItem("mahjong_active_session_backup");
+      cachedSessionState.value = null;
+      isResumeModalOpen.value = false;
+    };
+
+    // ==========================================
     // Firebase 同期ロジック
     // ==========================================
     const syncStateToFirebase = () => {
+      saveLocalBackup();
       if (isRemoteUpdating || !roomId.value || isReadOnly.value) return;
 
       const payload = {
@@ -167,13 +242,14 @@ createApp({
         if (val.history) history.value = val.history;
         if (val.sessionArchives) sessionArchives.value = val.sessionArchives;
 
-        // ホスト判定
         const localHostKey = localStorage.getItem(`mahjong_host_${id}`);
         if (val.sessionConfig?.hostKey && localHostKey === val.sessionConfig.hostKey) {
           isHost.value = true;
         } else {
           isHost.value = false;
         }
+
+        saveLocalBackup();
 
         setTimeout(() => {
           isRemoteUpdating = false;
@@ -195,7 +271,6 @@ createApp({
       rate.value = Number(tempSetup.value.rate) || 0;
       playerNames.value = [...tempSetup.value.playerNames];
 
-      // プリセット適用
       selectedPresetIndex.value = 0;
       applyPreset();
 
@@ -218,6 +293,7 @@ createApp({
       } else {
         roomId.value = null;
         window.history.replaceState(null, '', window.location.pathname);
+        saveLocalBackup();
       }
     };
 
@@ -242,6 +318,7 @@ createApp({
         roomId.value = null;
         isSessionStarted.value = false;
         isRoomClosed.value = false;
+        localStorage.removeItem("mahjong_active_session_backup");
         window.history.replaceState(null, '', window.location.pathname);
       }
     };
@@ -251,6 +328,7 @@ createApp({
         isSessionStarted.value = false;
         isRoomClosed.value = false;
         history.value = [];
+        localStorage.removeItem("mahjong_active_session_backup");
         syncStateToFirebase();
       }
     };
@@ -316,7 +394,6 @@ createApp({
       syncStateToFirebase();
     };
 
-    // 半荘確定（同点ウマ山分け ＆ 倍率適用）
     const commitGame = () => {
       if (!isPointsValid.value) return;
 
@@ -472,9 +549,6 @@ createApp({
       isFinishModalOpen.value = true;
     };
 
-    // ==========================================
-    // 対局終了 ＆ ルーム status を closed に更新
-    // ==========================================
     const archiveAndReset = () => {
       const now = new Date();
       const dateStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -494,7 +568,10 @@ createApp({
       };
 
       sessionArchives.value.unshift(newArchive);
-      sessionConfig.value.status = 'closed'; // 終了ステータス
+      localStorage.setItem("mahjong_archives_storage", JSON.stringify(sessionArchives.value));
+      localStorage.removeItem("mahjong_active_session_backup");
+
+      sessionConfig.value.status = 'closed';
       isRoomClosed.value = true;
       isSessionStarted.value = false;
       isFinishModalOpen.value = false;
@@ -505,16 +582,37 @@ createApp({
     const deleteArchive = (id) => {
       if (confirm("この対戦結果を削除しますか？")) {
         sessionArchives.value = sessionArchives.value.filter(a => a.id !== id);
+        localStorage.setItem("mahjong_archives_storage", JSON.stringify(sessionArchives.value));
         syncStateToFirebase();
       }
     };
 
     onMounted(() => {
+      // 過去アーカイブのローカル復元
+      const savedArchives = localStorage.getItem("mahjong_archives_storage");
+      if (savedArchives) {
+        sessionArchives.value = JSON.parse(savedArchives);
+      }
+
       const urlParams = new URLSearchParams(window.location.search);
       const roomParam = urlParams.get('room');
 
       if (roomParam) {
         listenToRoom(roomParam);
+      } else {
+        // 中断データの自動復帰検知
+        const backup = localStorage.getItem("mahjong_active_session_backup");
+        if (backup) {
+          try {
+            const parsed = JSON.parse(backup);
+            if (parsed.isSessionStarted) {
+              cachedSessionState.value = parsed;
+              isResumeModalOpen.value = true;
+            }
+          } catch (e) {
+            localStorage.removeItem("mahjong_active_session_backup");
+          }
+        }
       }
     });
 
@@ -522,6 +620,7 @@ createApp({
       currentTab,
       isFinishModalOpen,
       isStartModalOpen,
+      isResumeModalOpen,
       isSessionStarted,
       isRoomClosed,
       isHost,
@@ -544,6 +643,15 @@ createApp({
       activeHistory,
       allHistorySorted,
       sessionArchives,
+      currentArchivePage,
+      totalPages,
+      paginatedArchives,
+      expandedArchiveIds,
+      toggleArchiveDetail,
+      getTopPlayer,
+      cachedSessionState,
+      resumeCachedSession,
+      discardCachedSession,
       totalInputPoints,
       isPointsValid,
       bonusSum,
