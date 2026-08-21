@@ -1,51 +1,102 @@
 @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&family=Noto+Sans+JP:wght@500;700;900&display=swap');
 
-/* 全体のフォント適用 */
-body {
+html, body {
   margin: 0;
+  padding: 0;
   min-height: 100vh;
   font-family: 'Noto Sans JP', sans-serif;
   background: radial-gradient(circle at 50% 30%, #881337 0%, #4c0519 60%, #1f0209 100%);
-  background-attachment: fixed;
   color: #0f172a;
-  position: relative;
+  touch-action: pan-y; /* 縦スクロールを優先 */
+  -webkit-overflow-scrolling: touch;
   overflow-x: hidden;
 }
 
-/* タイトル・目立たせる見出し用フォント */
 .font-heading {
   font-family: 'M PLUS Rounded 1c', sans-serif;
 }
 
-/* 背景に大きく散りばめる麻雀牌（色味を濃く・大きく配置） */
-body::before {
-  content: "🀄 🀐 🀙 🀀 🀁 🀂 🀃 🀅 🀆 🀡 🀢 🀣 🀚 🀛 🀒 🀓";
+/* ========================================================
+   流れる麻雀牌アニメーション背景（右から左へ）
+   ======================================================== */
+.bg-tile-animation-container {
   position: fixed;
-  inset: -20px;
+  inset: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   justify-content: space-around;
-  align-content: space-around;
-  font-size: clamp(60px, 8vw, 110px);
-  line-height: 1.4;
-  letter-spacing: 24px;
-  opacity: 0.35;
-  color: #fbcfe8; /* 濃いめのピンクゴールド調 */
-  text-shadow: 0 0 18px rgba(0, 0, 0, 0.9), 2px 2px 6px rgba(0,0,0,0.8);
-  pointer-events: none;
+  pointer-events: none; /* タッチイベントを透過し入力邪魔を防止 */
+  user-select: none;
   z-index: 0;
-  word-break: break-all;
+  overflow: hidden;
 }
 
-/* 各種カード・パネル：くっきりとした黒枠と立体感 */
+.tile-row {
+  display: flex;
+  white-space: nowrap;
+  font-size: clamp(45px, 6vw, 75px);
+  color: #fbcfe8;
+  opacity: 0.35;
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.9), 2px 2px 4px rgba(0, 0, 0, 0.8);
+  will-change: transform;
+}
+
+.tile-row span {
+  display: inline-block;
+  padding-right: 20px;
+}
+
+/* 右から左へ無限スクロールのアニメーションキーフレーム */
+@keyframes scrollLeft {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.marquee-left-fast {
+  animation: scrollLeft 24s linear infinite;
+}
+
+.marquee-left-medium {
+  animation: scrollLeft 34s linear infinite;
+}
+
+.marquee-left-slow {
+  animation: scrollLeft 48s linear infinite;
+}
+
+/* ========================================================
+   UI パネル & モーダル（スクロール対応）
+   ======================================================== */
 .card-panel {
-  background-color: rgba(255, 255, 255, 0.96) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 2.5px solid #0f172a !important; /* 黒枠 */
-  box-shadow: 4px 4px 0px #0f172a !important; /* ポップで見やすいソリッドシャドウ */
+  background-color: rgba(255, 255, 255, 0.97) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 2.5px solid #0f172a !important;
+  box-shadow: 4px 4px 0px #0f172a !important;
   position: relative;
   z-index: 1;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 50;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* スマホ等で画面からはみ出た場合にモーダル内部をスクロール */
+.modal-body-scroll {
+  max-height: 90vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 /* ボタンデザイン */
@@ -72,16 +123,3 @@ body::before {
 .btn-score-100-minus:hover { background-color: #cbd5e1; }
 .btn-score-100-plus { background-color: #334155; color: #ffffff; }
 .btn-score-100-plus:hover { background-color: #1e293b; }
-
-/* モーダル */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(15, 23, 42, 0.82);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  z-index: 50;
-}

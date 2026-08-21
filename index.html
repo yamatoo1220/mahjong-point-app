@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>麻雀ポイント数えるくん</title>
   <!-- Tailwind CSS & Vue.js (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -13,7 +13,28 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="p-3 md:p-8">
-  <div id="app" class="max-w-5xl mx-auto space-y-6">
+  
+  <!-- 流れる麻雀牌のアニメーション背景 -->
+  <div class="bg-tile-animation-container" aria-hidden="true">
+    <div class="tile-row marquee-left-fast">
+      <span>🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 </span>
+      <span>🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 </span>
+    </div>
+    <div class="tile-row marquee-left-medium">
+      <span>🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 </span>
+      <span>🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 </span>
+    </div>
+    <div class="tile-row marquee-left-slow">
+      <span>🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 </span>
+      <span>🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 </span>
+    </div>
+    <div class="tile-row marquee-left-medium">
+      <span>🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 </span>
+      <span>🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀀 🀐 🀙 🀄 🀡 🀁 🀑 🀚 🀅 🀢 </span>
+    </div>
+  </div>
+
+  <div id="app" class="max-w-5xl mx-auto space-y-6 relative z-10">
 
     <!-- ヘッダー & ルーム管理バー -->
     <header class="card-panel p-4 rounded-2xl space-y-3">
@@ -31,7 +52,6 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <!-- 対局開始・リセットボタン -->
           <button v-if="!isSessionStarted && !isReadOnly && !isRoomClosed" @click="openStartModal" class="bg-rose-600 hover:bg-rose-700 text-white font-black px-4 py-2 rounded-xl text-xs transition border-2 border-slate-900 shadow-sm font-heading">
             ▶ 新しい対局を開始
           </button>
@@ -39,7 +59,6 @@
             🔄 対局リセット
           </button>
 
-          <!-- タブ切り替え -->
           <div class="flex bg-slate-200 p-1 rounded-xl border-2 border-slate-900 text-xs font-black">
             <button @click="currentTab = 'active'" :class="currentTab === 'active' ? 'bg-white text-rose-600 border border-slate-900 shadow-sm' : 'text-slate-700 hover:text-slate-900'" class="px-3 py-1.5 rounded-lg transition font-heading">
               🎮 {{ isRoomClosed ? '最終結果' : '対局中' }} ({{ activeHistory.length }})
@@ -51,7 +70,6 @@
         </div>
       </div>
 
-      <!-- ルーム接続ステータス & 招待UI -->
       <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t-2 border-slate-900/15 text-xs font-bold">
         <div class="flex items-center gap-2">
           <span class="inline-block w-3 h-3 rounded-full border border-slate-900" :class="isRoomClosed ? 'bg-slate-400' : (roomId ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')"></span>
@@ -418,7 +436,7 @@
 
     <!-- ==================== 対局開始セットアップモーダル ==================== -->
     <div v-if="isStartModalOpen" class="modal-overlay">
-      <div class="card-panel rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      <div class="card-panel rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl modal-body-scroll">
         <div class="text-center space-y-1">
           <div class="text-4xl">🀄</div>
           <h2 class="text-xl font-black font-heading text-slate-900">新しい対局を開始</h2>
@@ -509,7 +527,7 @@
 
     <!-- ==================== 終了モーダル ==================== -->
     <div v-if="isFinishModalOpen" class="modal-overlay">
-      <div class="card-panel rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+      <div class="card-panel rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl modal-body-scroll">
         <div class="text-center space-y-1">
           <div class="text-4xl">🎉</div>
           <h2 class="text-2xl font-black font-heading text-slate-900">対局お疲れ様でした！</h2>
