@@ -20,6 +20,7 @@ createApp({
     const isFinishModalOpen = ref(false);
     const isStartModalOpen = ref(false);
     const isSessionStarted = ref(false);
+    const isRoomClosed = ref(false);
     const isHost = ref(false);
     const hostKey = ref(null);
     const roomId = ref(null);
@@ -29,16 +30,30 @@ createApp({
     const sessionConfig = ref({
       gameMode: '4p', // '4p' | '3p'
       controlMode: 'all', // 'all' | 'hostOnly'
+      status: 'active', // 'active' | 'closed'
       hostKey: null
     });
+
+    // レートプリセット一覧
+    const presetRates = [
+      { label: "ノーレート", sub: "0円", value: 0 },
+      { label: "テンイチ", sub: "10円", value: 10 },
+      { label: "テンゴ", sub: "50円", value: 50 },
+      { label: "テンピン", sub: "100円", value: 100 }
+    ];
 
     // 開始モーダル用一時設定
     const tempSetup = ref({
       gameMode: '4p',
+      rate: 50,
       playerNames: ["プレイヤーA", "プレイヤーB", "プレイヤーC", "プレイヤーD"],
       connectionType: 'room',
       controlMode: 'hostOnly'
     });
+
+    const selectPresetRate = (val) => {
+      tempSetup.value.rate = val;
+    };
 
     // ポイント倍率
     const gameMultiplier = ref(1);
@@ -80,6 +95,7 @@ createApp({
 
     // 閲覧専用判定
     const isReadOnly = computed(() => {
+      if (isRoomClosed.value) return true;
       if (!roomId.value) return false;
       if (sessionConfig.value.controlMode === 'hostOnly' && !isHost.value) {
         return true;
@@ -139,7 +155,10 @@ createApp({
 
         isRemoteUpdating = true;
         isSessionStarted.value = !!val.isSessionStarted;
-        if (val.sessionConfig) sessionConfig.value = val.sessionConfig;
+        if (val.sessionConfig) {
+          sessionConfig.value = val.sessionConfig;
+          isRoomClosed.value = (val.sessionConfig.status === 'closed');
+        }
         if (val.currentRule) currentRule.value = val.currentRule;
         if (val.rate !== undefined) rate.value = val.rate;
         if (val.playerNames) playerNames.value = val.playerNames;
@@ -148,7 +167,7 @@ createApp({
         if (val.history) history.value = val.history;
         if (val.sessionArchives) sessionArchives.value = val.sessionArchives;
 
-        // ホスト判定（localStorageに保持したキーと突合）
+        // ホスト判定
         const localHostKey = localStorage.getItem(`mahjong_host_${id}`);
         if (val.sessionConfig?.hostKey && localHostKey === val.sessionConfig.hostKey) {
           isHost.value = true;
@@ -164,12 +183,16 @@ createApp({
 
     const openStartModal = () => {
       tempSetup.value.playerNames = [...playerNames.value];
+      tempSetup.value.rate = rate.value;
       isStartModalOpen.value = true;
     };
 
     const confirmStartSession = () => {
       sessionConfig.value.gameMode = tempSetup.value.gameMode;
       sessionConfig.value.controlMode = tempSetup.value.controlMode;
+      sessionConfig.value.status = 'active';
+      isRoomClosed.value = false;
+      rate.value = Number(tempSetup.value.rate) || 0;
       playerNames.value = [...tempSetup.value.playerNames];
 
       // プリセット適用
@@ -218,6 +241,7 @@ createApp({
         if (roomId.value) db.ref(`rooms/${roomId.value}`).off();
         roomId.value = null;
         isSessionStarted.value = false;
+        isRoomClosed.value = false;
         window.history.replaceState(null, '', window.location.pathname);
       }
     };
@@ -225,6 +249,7 @@ createApp({
     const confirmResetSession = () => {
       if (confirm("現在の対局設定をリセットし、最初からやり直しますか？")) {
         isSessionStarted.value = false;
+        isRoomClosed.value = false;
         history.value = [];
         syncStateToFirebase();
       }
@@ -291,9 +316,7 @@ createApp({
       syncStateToFirebase();
     };
 
-    // ==========================================
-    // 半荘確定（同点ウマ山分け ＆ 倍率適用計算）
-    // ==========================================
+    // 半荘確定（同点ウマ山分け ＆ 倍率適用）
     const commitGame = () => {
       if (!isPointsValid.value) return;
 
@@ -336,7 +359,7 @@ createApp({
         for (let k = i; k <= j; k++) {
           const p = sorted[k];
           const rawPoint = (p.rawScore - rule.returnPoints) / 1000;
-          const finalPoint = (rawPoint + splitUmaOka) * mult; // 倍率乗算
+          const finalPoint = (rawPoint + splitUmaOka) * mult;
 
           results.push({
             rankDisplay: rankDisplay,
@@ -359,7 +382,7 @@ createApp({
         excluded: false
       });
 
-      gameMultiplier.value = 1; // 次回用に等倍リセット
+      gameMultiplier.value = 1;
       resetInputPoints();
       syncStateToFirebase();
     };
@@ -449,6 +472,9 @@ createApp({
       isFinishModalOpen.value = true;
     };
 
+    // ==========================================
+    // 対局終了 ＆ ルーム status を closed に更新
+    // ==========================================
     const archiveAndReset = () => {
       const now = new Date();
       const dateStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -468,10 +494,11 @@ createApp({
       };
 
       sessionArchives.value.unshift(newArchive);
-      history.value = [];
-      bonusPoints.value = [0, 0, 0, 0];
+      sessionConfig.value.status = 'closed'; // 終了ステータス
+      isRoomClosed.value = true;
+      isSessionStarted.value = false;
       isFinishModalOpen.value = false;
-      currentTab.value = 'archives';
+
       syncStateToFirebase();
     };
 
@@ -496,11 +523,14 @@ createApp({
       isFinishModalOpen,
       isStartModalOpen,
       isSessionStarted,
+      isRoomClosed,
       isHost,
       isReadOnly,
       roomId,
       sessionConfig,
+      presetRates,
       tempSetup,
+      selectPresetRate,
       gameMultiplier,
       currentPresets,
       selectedPresetIndex,
