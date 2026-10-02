@@ -178,6 +178,11 @@
                 <span>最短送金ルート</span>
                 <span>合計 {{ settlements.length }} 回</span>
               </div>
+              <div v-if="hasTableFee" class="text-[11px] font-bold text-sky-900 bg-sky-100 border border-slate-900 rounded-lg px-2 py-1">
+                🏠 場代 {{ feeTotal.toLocaleString() }}円（{{ feeMethodLabel(tableFee.method) }}）
+                <span v-if="tableFee.payer >= 0">／{{ activePlayers[tableFee.payer] }} の立て替え分を含む</span>
+                <span v-else>／各自で支払い</span>
+              </div>
               <div v-for="(s, idx) in settlements" :key="idx" class="bg-white p-2.5 rounded-xl border-2 border-slate-900 flex justify-between items-center text-xs shadow-sm">
                 <div class="flex items-center gap-1.5 font-bold">
                   <span class="text-rose-700 font-black">{{ s.from }}</span>
@@ -450,6 +455,13 @@
                 </div>
               </div>
 
+              <div v-if="session.tableFee" class="bg-sky-50 p-2.5 rounded-xl border-2 border-slate-900 text-xs font-bold text-sky-950 space-y-1">
+                <div class="font-black font-heading">🏠 場代 {{ session.tableFee.total.toLocaleString() }}円（{{ feeMethodLabel(session.tableFee.method) }}）{{ session.tableFee.payer ? `／${session.tableFee.payer} が立て替え` : '／各自で支払い' }}</div>
+                <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-slate-700">
+                  <span v-for="p in session.players" :key="p.name">{{ p.name }}: {{ (p.fee || 0).toLocaleString() }}円</span>
+                </div>
+              </div>
+
               <!-- 送金精算結果 -->
               <div v-if="session.settlements && session.settlements.length > 0" class="bg-emerald-100/70 p-2.5 rounded-xl border-2 border-slate-900 text-xs space-y-1">
                 <div class="text-[11px] font-black text-emerald-950 mb-1 font-heading">精算ルート:</div>
@@ -616,20 +628,72 @@
                 <th class="p-2.5">プレイヤー</th>
                 <th class="p-2.5 text-right">確定ポイント</th>
                 <th class="p-2.5 text-right">収支 (円)</th>
+                <th v-if="hasTableFee" class="p-2.5 text-right">場代</th>
               </tr>
             </thead>
             <tbody class="divide-y-2 divide-slate-200">
               <tr v-for="(name, idx) in activePlayers" :key="idx" class="hover:bg-slate-50">
-                <td class="p-2.5 font-black text-slate-900 font-heading">{{ name }}</td>
-                <td class="p-2.5 text-right font-mono font-black" :class="totalPointsWithBonus[idx] >= 0 ? 'text-blue-700' : 'text-rose-700'">
+                <td class="p-2 font-black text-slate-900 font-heading">{{ name }}</td>
+                <td class="p-2 text-right font-mono font-black whitespace-nowrap" :class="totalPointsWithBonus[idx] >= 0 ? 'text-blue-700' : 'text-rose-700'">
                   {{ totalPointsWithBonus[idx] > 0 ? '+' : '' }}{{ totalPointsWithBonus[idx].toFixed(1) }} pt
                 </td>
-                <td class="p-2.5 text-right font-mono font-black text-sm" :class="totalMoney[idx] >= 0 ? 'text-emerald-700' : 'text-rose-700'">
+                <td class="p-2 text-right font-mono font-black text-sm whitespace-nowrap" :class="totalMoney[idx] >= 0 ? 'text-emerald-700' : 'text-rose-700'">
                   {{ totalMoney[idx] > 0 ? '+' : '' }}{{ totalMoney[idx].toLocaleString() }} 円
+                </td>
+                <td v-if="hasTableFee" class="p-2 text-right font-mono font-black text-sky-800 whitespace-nowrap">
+                  {{ feeShares[idx].toLocaleString() }} 円
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- 場代精算 -->
+        <div class="bg-sky-50/90 border-2 border-slate-900 p-3.5 rounded-2xl space-y-3 text-xs">
+          <div class="font-black text-sky-950 flex justify-between font-heading">
+            <span>🏠 場代</span>
+            <span v-if="hasTableFee">合計 {{ feeTotal.toLocaleString() }} 円</span>
+          </div>
+
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" v-for="m in feeMethods" :key="m.value" @click="setFeeMethod(m.value)" :class="tableFee.method === m.value ? 'bg-sky-700 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-900/40 hover:bg-slate-100'" class="px-2.5 py-1.5 rounded-xl border-2 font-black transition">
+              {{ m.label }}
+            </button>
+          </div>
+
+          <div v-if="tableFee.method === 'equal' || tableFee.method === 'top'" class="flex items-center gap-1.5">
+            <span class="font-black text-slate-800">場代の合計</span>
+            <input type="number" v-model.number="tableFee.total" @input="syncStateToFirebase" class="w-28 border-2 border-slate-900 rounded-lg px-2 py-1 text-right font-mono font-black bg-white" step="100" min="0">
+            <span class="font-black text-slate-700">円</span>
+          </div>
+
+          <div v-if="tableFee.method === 'tiered'" class="grid gap-1.5" :class="activePlayers.length === 4 ? 'grid-cols-2' : 'grid-cols-3'">
+            <label v-for="(p, rIdx) in activePlayers" :key="rIdx" class="flex items-center gap-1">
+              <span class="font-black text-slate-800 w-8 shrink-0">{{ rIdx + 1 }}位</span>
+              <input type="number" v-model.number="tableFee.tiers[rIdx]" @input="syncStateToFirebase" class="w-full min-w-0 border-2 border-slate-900 rounded-lg px-2 py-1 text-right font-mono font-black bg-white" step="100" min="0">
+              <span class="font-black text-slate-700">円</span>
+            </label>
+          </div>
+
+          <div v-if="tableFee.method === 'custom'" class="grid gap-1.5" :class="activePlayers.length === 4 ? 'grid-cols-2' : 'grid-cols-3'">
+            <label v-for="(p, pIdx) in activePlayers" :key="pIdx" class="flex items-center gap-1">
+              <span class="font-black text-slate-800 w-16 shrink-0 truncate font-heading">{{ p }}</span>
+              <input type="number" v-model.number="tableFee.custom[pIdx]" @input="syncStateToFirebase" class="w-full min-w-0 border-2 border-slate-900 rounded-lg px-2 py-1 text-right font-mono font-black bg-white" step="100" min="0">
+              <span class="font-black text-slate-700">円</span>
+            </label>
+          </div>
+
+          <div v-if="tableFee.method !== 'none'" class="flex items-center gap-1.5">
+            <span class="font-black text-slate-800 shrink-0">お店への支払い</span>
+            <select v-model.number="tableFee.payer" @change="syncStateToFirebase" class="flex-1 min-w-0 border-2 border-slate-900 rounded-lg p-1.5 bg-white font-black">
+              <option :value="-1">各自で払う</option>
+              <option v-for="(p, pIdx) in activePlayers" :key="pIdx" :value="pIdx">{{ p }} が立て替えた</option>
+            </select>
+          </div>
+
+          <p v-if="hasTableFee" class="text-[11px] font-bold text-sky-900">
+            {{ tableFee.payer >= 0 ? `${activePlayers[tableFee.payer]} の立て替え分を下の送金ルートに含めています` : '各自でお店に支払います（送金ルートには含みません）' }}
+          </p>
         </div>
 
         <div class="bg-emerald-100/90 border-2 border-slate-900 p-3.5 rounded-2xl space-y-2">
@@ -661,6 +725,7 @@
 
   </div>
 
+  <script src="shared/calc.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

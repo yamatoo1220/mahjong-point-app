@@ -13,6 +13,23 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 const { createApp, ref, computed, onMounted, watch } = Vue;
+const { calcGameResults, pointsToUnits, calcFeeShares, calcFeeAdjustments, calcSettlements } = MahjongCalc;
+
+const FEE_METHODS = [
+  { value: 'none', label: 'なし' },
+  { value: 'equal', label: '均等割り' },
+  { value: 'top', label: 'トップ払い' },
+  { value: 'tiered', label: '順位で傾斜' },
+  { value: 'custom', label: '個別入力' }
+];
+
+const createDefaultTableFee = () => ({
+  method: 'none',
+  total: 0,
+  tiers: [0, 0, 0, 0],
+  custom: [0, 0, 0, 0],
+  payer: -1
+});
 
 createApp({
   setup() {
@@ -81,6 +98,7 @@ createApp({
       { rawScore: 25000 }
     ]);
     const bonusPoints = ref([0, 0, 0, 0]);
+    const tableFee = ref(createDefaultTableFee());
 
     const history = ref([]);
     const sessionArchives = ref([]);
@@ -165,6 +183,7 @@ createApp({
           playerNames: playerNames.value,
           currentInput: currentInput.value,
           bonusPoints: bonusPoints.value,
+          tableFee: tableFee.value,
           history: history.value,
           sessionArchives: sessionArchives.value,
           roomId: roomId.value
@@ -185,6 +204,7 @@ createApp({
         if (val.playerNames) playerNames.value = val.playerNames;
         if (val.currentInput) currentInput.value = val.currentInput;
         if (val.bonusPoints) bonusPoints.value = val.bonusPoints;
+        tableFee.value = { ...createDefaultTableFee(), ...(val.tableFee || {}) };
         if (val.history) history.value = val.history;
         if (val.sessionArchives) sessionArchives.value = val.sessionArchives;
         if (val.roomId) listenToRoom(val.roomId);
@@ -213,6 +233,7 @@ createApp({
         playerNames: playerNames.value,
         currentInput: currentInput.value,
         bonusPoints: bonusPoints.value,
+        tableFee: tableFee.value,
         history: history.value,
         sessionArchives: sessionArchives.value,
         updatedAt: Date.now()
@@ -239,6 +260,7 @@ createApp({
         if (val.playerNames) playerNames.value = val.playerNames;
         if (val.currentInput) currentInput.value = val.currentInput;
         if (val.bonusPoints) bonusPoints.value = val.bonusPoints;
+        tableFee.value = { ...createDefaultTableFee(), ...(val.tableFee || {}) };
         if (val.history) history.value = val.history;
         if (val.sessionArchives) sessionArchives.value = val.sessionArchives;
 
@@ -276,6 +298,7 @@ createApp({
 
       history.value = [];
       bonusPoints.value = [0, 0, 0, 0];
+      tableFee.value = createDefaultTableFee();
       gameMultiplier.value = 1;
       isSessionStarted.value = true;
       isStartModalOpen.value = false;
@@ -399,7 +422,6 @@ createApp({
 
       const rule = currentRule.value;
       const appliedRuleName = rule.name?.trim() || getNextCustomName();
-      const numPlayers = playerCount.value;
       const mult = Number(gameMultiplier.value) || 1;
 
       const rawData = activeInput.value.map((p, idx) => ({
@@ -407,47 +429,7 @@ createApp({
         rawScore: Number(p.rawScore) || 0
       }));
 
-      const sorted = [...rawData].sort((a, b) => b.rawScore - a.rawScore);
-      const totalOka = ((rule.returnPoints - rule.startingPoints) * numPlayers) / 1000;
-
-      const rankBasePoints = rule.uma.map((umaVal, idx) => {
-        return umaVal + (idx === 0 ? totalOka : 0);
-      });
-
-      const results = [];
-      let i = 0;
-
-      while (i < numPlayers) {
-        let j = i;
-        while (j + 1 < numPlayers && sorted[j + 1].rawScore === sorted[i].rawScore) {
-          j++;
-        }
-
-        const tieCount = j - i + 1;
-        let sumUmaOka = 0;
-        for (let k = i; k <= j; k++) {
-          sumUmaOka += rankBasePoints[k];
-        }
-        const splitUmaOka = sumUmaOka / tieCount;
-
-        const startRank = i + 1;
-        const rankDisplay = tieCount > 1 ? `${startRank}位タイ` : `${startRank}位`;
-
-        for (let k = i; k <= j; k++) {
-          const p = sorted[k];
-          const rawPoint = (p.rawScore - rule.returnPoints) / 1000;
-          const finalPoint = (rawPoint + splitUmaOka) * mult;
-
-          results.push({
-            rankDisplay: rankDisplay,
-            name: p.name,
-            rawScore: p.rawScore,
-            point: finalPoint
-          });
-        }
-
-        i = j + 1;
-      }
+      const results = calcGameResults(rule, rawData, mult);
 
       history.value.push({
         id: Date.now(),
@@ -497,53 +479,23 @@ createApp({
       return cumulativePoints.value.map((pt, idx) => pt + (Number(bonusPoints.value[idx]) || 0));
     });
 
-    const totalMoney = computed(() => {
-      const r = rate.value || 0;
-      const calculatedMoney = totalPointsWithBonus.value.map(pt => Math.round(pt * r));
-      const sum = calculatedMoney.reduce((acc, v) => acc + v, 0);
-      if (calculatedMoney.length > 0 && sum !== 0) {
-        calculatedMoney[0] -= sum;
-      }
-      return calculatedMoney;
-    });
+    const totalMoney = computed(() => pointsToUnits(totalPointsWithBonus.value, rate.value || 0));
 
-    const settlements = computed(() => {
-      const balances = activePlayers.value.map((name, idx) => ({
-        name: name,
-        money: totalMoney.value[idx] || 0
-      }));
+    // 場代: 負担額は順位（祝儀込みの最終pt）で決める
+    const feeShares = computed(() => calcFeeShares(tableFee.value, totalPointsWithBonus.value));
+    const feeTotal = computed(() => feeShares.value.reduce((acc, v) => acc + v, 0));
+    const feeAdjustments = computed(() => calcFeeAdjustments(feeShares.value, tableFee.value.payer));
+    const finalMoney = computed(() => totalMoney.value.map((m, idx) => m + feeAdjustments.value[idx]));
+    const hasTableFee = computed(() => tableFee.value.method !== 'none' && feeTotal.value > 0);
 
-      let debtors = balances.filter(b => b.money < 0).map(b => ({ name: b.name, balance: -b.money }));
-      let creditors = balances.filter(b => b.money > 0).map(b => ({ name: b.name, balance: b.money }));
+    const settlements = computed(() => calcSettlements(activePlayers.value, finalMoney.value));
 
-      debtors.sort((a, b) => b.balance - a.balance);
-      creditors.sort((a, b) => b.balance - a.balance);
+    const feeMethodLabel = (method) => FEE_METHODS.find(m => m.value === method)?.label || '';
 
-      const list = [];
-      let d = 0, c = 0;
-
-      while (d < debtors.length && c < creditors.length) {
-        const debtor = debtors[d];
-        const creditor = creditors[c];
-        const amount = Math.min(debtor.balance, creditor.balance);
-
-        if (amount > 0) {
-          list.push({
-            from: debtor.name,
-            to: creditor.name,
-            amount: Math.round(amount)
-          });
-        }
-
-        debtor.balance -= amount;
-        creditor.balance -= amount;
-
-        if (debtor.balance === 0) d++;
-        if (creditor.balance === 0) c++;
-      }
-
-      return list;
-    });
+    const setFeeMethod = (method) => {
+      tableFee.value.method = method;
+      syncStateToFirebase();
+    };
 
     const openFinishModal = () => {
       isFinishModalOpen.value = true;
@@ -562,8 +514,17 @@ createApp({
         players: activePlayers.value.map((name, idx) => ({
           name,
           point: totalPointsWithBonus.value[idx],
-          money: totalMoney.value[idx]
+          money: finalMoney.value[idx],
+          gameMoney: totalMoney.value[idx],
+          fee: feeShares.value[idx]
         })),
+        tableFee: hasTableFee.value
+          ? {
+              method: tableFee.value.method,
+              total: feeTotal.value,
+              payer: activePlayers.value[tableFee.value.payer] || null
+            }
+          : null,
         settlements: [...settlements.value]
       };
 
@@ -639,6 +600,15 @@ createApp({
       activePlayers,
       activeInput,
       bonusPoints,
+      tableFee,
+      feeMethods: FEE_METHODS,
+      feeShares,
+      feeTotal,
+      feeAdjustments,
+      finalMoney,
+      hasTableFee,
+      setFeeMethod,
+      feeMethodLabel,
       history,
       activeHistory,
       allHistorySorted,
