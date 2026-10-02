@@ -521,7 +521,8 @@ createApp({
       const results = calcGameResults(rule, rawData, mult);
 
       const game = {
-        id: Date.now(),
+        // 同じミリ秒に別端末で記録しても重ならないよう乱数を足す
+        id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
         title: '',
         mode: sessionConfig.value.gameMode,
         ruleName: appliedRuleName,
@@ -534,7 +535,12 @@ createApp({
       gameMultiplier.value = 1;
       resetInputPoints();
       syncStateToFirebase();
-      updateRoomHistory(games => [...games, game]);
+      updateRoomHistory(games => {
+        const usedIds = new Set(games.map(g => g.id));
+        const uniqueGame = { ...game };
+        while (usedIds.has(uniqueGame.id)) uniqueGame.id++;
+        return [...games, uniqueGame];
+      });
     };
 
     const toggleExclude = (id, exclude) => {
