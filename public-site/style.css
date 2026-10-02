@@ -1,0 +1,137 @@
+@import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&family=Noto+Sans+JP:wght@500;700;900&display=swap');
+
+:root {
+  background-color: #4c0519; /* 最深層の地肌を赤に固定（白抜け防止） */
+}
+
+html {
+  background-color: #4c0519;
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  font-family: 'Noto Sans JP', sans-serif;
+  background: radial-gradient(circle at 50% 30%, #881337 0%, #4c0519 60%, #1f0209 100%);
+  background-color: #4c0519;
+  color: #0f172a;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  overflow-x: hidden;
+  overscroll-behavior-y: none; /* スマホ端の白い引っ張りバウンスを抑制 */
+}
+
+.font-heading {
+  font-family: 'M PLUS Rounded 1c', sans-serif;
+}
+
+/* ========================================================
+   流れる麻雀牌アニメーション背景（GPU負荷を最小化）
+   ======================================================== */
+.bg-tile-animation-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+  overflow: hidden;
+  transform: translateZ(0);
+}
+
+.tile-row {
+  display: flex;
+  white-space: nowrap;
+  font-size: clamp(45px, 6vw, 75px);
+  color: #fbcfe8;
+  opacity: 0.3;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+.tile-row span {
+  display: inline-block;
+  padding-right: 20px;
+}
+
+@keyframes scrollLeft {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
+}
+
+.marquee-left-fast {
+  animation: scrollLeft 28s linear infinite;
+}
+
+.marquee-left-medium {
+  animation: scrollLeft 38s linear infinite;
+}
+
+.marquee-left-slow {
+  animation: scrollLeft 52s linear infinite;
+}
+
+/* ========================================================
+   UI パネル（カクつき・再描画バグ対策版）
+   ======================================================== */
+.card-panel {
+  background-color: #ffffff !important; /* 負荷の高いブラーを外して完全な白カードに */
+  border: 2.5px solid #0f172a !important;
+  box-shadow: 4px 4px 0px #0f172a !important;
+  position: relative;
+  z-index: 1;
+  transform: translateZ(0); /* GPU常駐でスクロール時のチカチカを防止 */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* モーダル */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 50;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-body-scroll {
+  max-height: 90vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+/* ボタンデザイン */
+.btn-score {
+  padding: 0.25rem 0.375rem;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 0.25rem;
+  border: 1.5px solid #0f172a;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-score-10k-minus { background-color: #f3e8ff; color: #7e22ce; }
+.btn-score-10k-minus:hover { background-color: #e9d5ff; }
+.btn-score-10k-plus { background-color: #9333ea; color: #ffffff; }
+.btn-score-10k-plus:hover { background-color: #7e22ce; }
+
+.btn-score-1k-minus { background-color: #e0f2fe; color: #0369a1; }
+.btn-score-1k-minus:hover { background-color: #bae6fd; }
+.btn-score-1k-plus { background-color: #2563eb; color: #ffffff; }
+.btn-score-1k-plus:hover { background-color: #1d4ed8; }
+
+.btn-score-100-minus { background-color: #e2e8f0; color: #334155; }
+.btn-score-100-minus:hover { background-color: #cbd5e1; }
+.btn-score-100-plus { background-color: #334155; color: #ffffff; }
+.btn-score-100-plus:hover { background-color: #1e293b; }

@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>麻雀ポイント数えるくん</title>
+  <meta name="description" content="麻雀の点数計算・ウマオカ計算・半荘ごとの成績記録を、仲間とリアルタイムで共有できる無料ツールです。">
+  <!-- Tailwind CSS & Vue.js (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="p-3 md:p-8">
+  
+  <!-- 背景アニメーション -->
+  <div class="bg-tile-animation-container" aria-hidden="true">
+    <div class="tile-row marquee-left-fast">
+      <span>🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 </span>
+      <span>🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 </span>
+    </div>
+    <div class="tile-row marquee-left-medium">
+      <span>🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 </span>
+      <span>🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 </span>
+    </div>
+    <div class="tile-row marquee-left-slow">
+      <span>🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 </span>
+      <span>🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 </span>
+    </div>
+    <div class="tile-row marquee-left-medium">
+      <span>🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 </span>
+      <span>🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 🀂 🀒 🀛 🀆 🀣 🀃 🀓 🀜 🀀 🀐 🀙 🀡 🀁 🀑 🀚 🀅 🀢 </span>
+    </div>
+  </div>
+
+  <div id="app" class="max-w-5xl mx-auto space-y-6 relative z-10">
+
+    <!-- ヘッダー & ルーム管理バー -->
+    <header class="card-panel p-4 rounded-2xl space-y-3">
+      <div class="flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <h1 class="text-2xl font-black font-heading text-slate-900 flex items-center gap-2 tracking-wide">
+            🀄 麻雀ポイント数えるくん
+          </h1>
+          <p class="text-xs font-bold text-slate-600 mt-0.5">
+            <span v-if="isRoomClosed" class="bg-slate-900 text-white px-2 py-0.5 rounded text-[11px]">🏁 終了済み対局 (閲覧専用)</span>
+            <span v-else-if="isSessionStarted">{{ sessionConfig.gameMode === '4p' ? '4人麻雀' : '3人麻雀' }} 進行中 ({{ activeHistory.length }}回戦終了)</span>
+            <span v-else>対局をはじめよう！</span>
+            <span v-if="isReadOnly && !isRoomClosed" class="ml-2 bg-amber-200 text-amber-900 border border-slate-900 font-bold px-1.5 py-0.5 rounded text-[10px]">閲覧専用モード</span>
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- 新規対局開始ボタン -->
+          <button v-if="!isSessionStarted && !isReadOnly && !isRoomClosed" @click="openStartModal" class="bg-rose-600 hover:bg-rose-700 text-white font-black px-4 py-2 rounded-xl text-xs transition border-2 border-slate-900 shadow-sm font-heading">
+            ▶ 新しい対局を開始
+          </button>
+          
+          <!-- 過去の対戦ボタン（青色表示） -->
+          <button @click="currentTab = currentTab === 'archives' ? 'active' : 'archives'" :class="currentTab === 'archives' ? 'bg-blue-800 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'" class="font-black px-3.5 py-2 rounded-xl text-xs transition border-2 border-slate-900 shadow-sm font-heading flex items-center gap-1">
+            📚 過去の対戦 ({{ sessionArchives.length }})
+          </button>
+
+          <!-- 対局リセットボタン -->
+          <button v-if="(isHost || !roomId) && isSessionStarted && !isRoomClosed" @click="confirmResetSession" class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs border-2 border-slate-900 transition">
+            🔄 リセット
+          </button>
+        </div>
+      </div>
+
+      <!-- ルーム接続ステータス & 招待UI -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t-2 border-slate-900/15 text-xs font-bold">
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-3 h-3 rounded-full border border-slate-900" :class="isRoomClosed ? 'bg-slate-400' : (roomId ? (connectionStatus === 'open' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400') : 'bg-slate-400')"></span>
+          <span v-if="roomId" class="text-slate-800">
+            ルーム: <span class="text-rose-700 font-mono text-sm font-black">#{{ roomId }}</span>
+            <span v-if="isRoomClosed" class="text-slate-600 ml-1">[終了済み]</span>
+            <span v-else class="text-slate-500 font-normal ml-1">({{ sessionConfig.controlMode === 'hostOnly' ? '代表者のみ入力' : '全員入力可能' }})</span>
+          </span>
+          <span v-else class="text-slate-600 font-medium">ローカルモード (端末内保存)</span>
+          <span v-if="roomId && (connectionStatus === 'connecting' || connectionStatus === 'reconnecting')" class="bg-amber-200 text-amber-900 border border-slate-900 px-1.5 py-0.5 rounded text-[10px] font-black">
+            {{ connectionStatus === 'reconnecting' ? '再接続中…' : '接続中…' }}
+          </span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button v-if="!roomId && !isSessionStarted && !isRoomClosed" @click="joinRoomPrompt" class="bg-white hover:bg-slate-100 text-slate-800 font-black px-3 py-1 rounded-lg border-2 border-slate-900 transition">
+            ルーム番号で参加
+          </button>
+          <button v-if="roomId" @click="copyRoomUrl" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-950 border-2 border-slate-900 font-black px-3 py-1 rounded-lg transition flex items-center gap-1">
+            📋 招待リンクをコピー
+          </button>
+          <button v-if="roomId" @click="leaveRoom" class="text-rose-600 hover:underline px-2 py-1 font-black">
+            退室
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ==================== 終了済みルーム案内バナー ==================== -->
+    <div v-if="isRoomClosed" class="bg-slate-900 text-white p-4 rounded-2xl border-2 border-slate-900 shadow-md flex items-center justify-between gap-3 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">🏁</span>
+        <div>
+          <span class="font-black text-sm font-heading">この対局は終了しています。</span>
+          <p class="text-slate-300 text-xs mt-0.5">確定した最終スコアとポイント移動を表示しています（編集不可）。</p>
+        </div>
+      </div>
+      <button @click="leaveRoom" class="bg-white/20 hover:bg-white/30 text-white font-bold px-3 py-1.5 rounded-xl border border-white/40 transition shrink-0">
+        新規対局へ
+      </button>
+    </div>
+
+    <!-- ==================== 対局未開始ガイド ==================== -->
+    <div v-if="!isSessionStarted && !isRoomClosed && currentTab === 'active'" class="card-panel p-8 md:p-12 rounded-3xl text-center space-y-5">
+      <div class="text-6xl animate-bounce">🀄</div>
+      <h2 class="text-3xl md:text-4xl font-black font-heading text-slate-900 tracking-wide">
+        対局をはじめよう！
+      </h2>
+      <p class="text-sm md:text-base font-bold text-slate-600 max-w-lg mx-auto leading-relaxed">
+        ヨンマ・サンマの選択とメンバー名を決めて、記録をスタートしましょう！
+      </p>
+      <div class="flex flex-wrap justify-center gap-3 pt-3">
+        <button @click="openStartModal" class="bg-rose-600 hover:bg-rose-700 text-white font-black px-8 py-3.5 rounded-2xl text-base transition border-2 border-slate-900 shadow-md hover:scale-105 font-heading">
+          ▶ 新しい対局を開始する
+        </button>
+        <button @click="joinRoomPrompt" class="bg-white hover:bg-slate-100 text-slate-900 font-black px-6 py-3.5 rounded-2xl text-base border-2 border-slate-900 transition font-heading">
+          ルームに参加する
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================== 1. 対局中画面 ==================== -->
+    <main v-show="(isSessionStarted || isRoomClosed) && currentTab === 'active'" class="space-y-6">
+
+      <!-- 累計スコアボード -->
+      <section class="card-panel p-5 rounded-2xl">
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="text-xs font-black text-slate-700 uppercase tracking-wider font-heading">
+            {{ isRoomClosed ? '🏁 最終確定スコア' : '現在の総合累計スコア' }} ({{ sessionConfig.gameMode === '4p' ? '4人麻雀' : '3人麻雀' }})
+          </h2>
+          <button v-if="!isReadOnly && !isRoomClosed" @click="openFinishModal" :disabled="activeHistory.length === 0" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-black px-3 py-1.5 rounded-xl border-2 border-slate-900 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm flex items-center gap-1 font-heading">
+            🏁 対局を終了
+          </button>
+        </div>
+        <div class="grid gap-3" :class="sessionConfig.gameMode === '4p' ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'">
+          <div v-for="(p, idx) in activePlayers" :key="idx" class="p-3.5 rounded-xl border-2 border-slate-900 bg-slate-50 flex flex-col justify-between">
+            <span class="text-xs font-black text-slate-800 truncate font-heading">{{ p }}</span>
+            <div class="mt-2 flex items-baseline justify-between">
+              <span class="text-lg font-black font-mono" :class="totalPointsWithBonus[idx] >= 0 ? 'text-blue-700' : 'text-rose-700'">
+                {{ totalPointsWithBonus[idx] > 0 ? '+' : '' }}{{ totalPointsWithBonus[idx].toFixed(1) }} <span class="text-xs font-bold text-slate-500">pt</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- 左カラム: ポイント移動 / ボーナス / ルール -->
+        <div class="space-y-6">
+
+          <!-- ポイント移動ルート -->
+          <section class="card-panel p-4 rounded-2xl space-y-4 bg-emerald-50/90">
+            <div class="flex justify-between items-center border-b-2 border-slate-900/20 pb-2">
+              <h3 class="font-black text-sm text-emerald-950 font-heading">🔁 ポイント移動ルート</h3>
+            </div>
+
+            <div v-if="activeHistory.length === 0" class="text-xs font-bold text-slate-500">
+              半荘を記録するとポイント移動ルートが計算されます
+            </div>
+            <div v-else class="space-y-2">
+              <div class="text-[11px] text-emerald-900 font-black flex justify-between">
+                <span>最少移動ルート</span>
+                <span>合計 {{ transfers.length }} 回</span>
+              </div>
+              <div v-if="hasAdjustment" class="text-[11px] font-bold text-sky-900 bg-sky-100 border border-slate-900 rounded-lg px-2 py-1">
+                ⚖️ PT調整 {{ formatPt(adjustmentTotal) }}pt（{{ adjustMethodLabel(adjustment.method) }}）
+                <span v-if="adjustment.payer >= 0">／{{ activePlayers[adjustment.payer] }} が受け取る分を含む</span>
+                <span v-else>／各自から差し引き</span>
+              </div>
+              <div v-for="(s, idx) in transfers" :key="idx" class="bg-white p-2.5 rounded-xl border-2 border-slate-900 flex justify-between items-center text-xs shadow-sm">
+                <div class="flex items-center gap-1.5 font-bold">
+                  <span class="text-rose-700 font-black">{{ s.from }}</span>
+                  <span class="text-slate-400">➔</span>
+                  <span class="text-emerald-700 font-black">{{ s.to }}</span>
+                </div>
+                <span class="font-black text-sm font-mono text-slate-900">{{ formatPt(s.amount) }} pt</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- ボーナスpt設定 -->
+          <section class="card-panel p-4 rounded-2xl space-y-3 bg-amber-50/90">
+            <div class="flex items-center justify-between border-b-2 border-slate-900/20 pb-2">
+              <h3 class="font-black text-sm text-amber-950 flex items-center gap-1.5 font-heading">🎁 ボーナスpt移動</h3>
+              <span class="text-[10px] px-2 py-0.5 rounded-md font-black border border-slate-900" :class="isBonusValid ? 'bg-emerald-200 text-emerald-900' : 'bg-rose-200 text-rose-900'">
+                合計: {{ bonusSum > 0 ? '+' : '' }}{{ bonusSum }} pt
+              </span>
+            </div>
+
+            <div class="space-y-2">
+              <div v-for="(p, idx) in activePlayers" :key="idx" class="flex items-center gap-2">
+                <span class="text-xs font-black text-slate-800 w-24 truncate font-heading">{{ p }}</span>
+                <div class="flex items-center gap-1 flex-1">
+                  <input :disabled="isReadOnly || isRoomClosed" type="number" v-model.number="bonusPoints[idx]" @input="syncFields('bonusPoints')" class="w-full border-2 border-slate-900 rounded-lg px-2 py-1 text-sm text-right font-mono font-bold bg-white disabled:opacity-50" placeholder="0" step="1">
+                  <span class="text-xs font-bold text-slate-600">pt</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ルール設定 -->
+          <section v-if="!isRoomClosed" class="card-panel p-4 rounded-2xl space-y-3">
+            <div class="flex justify-between items-center border-b-2 border-slate-900/20 pb-2">
+              <h3 class="font-black text-sm text-slate-900 font-heading">⚙️ 次の半荘のルール設定</h3>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-600 block mb-1">プリセット読込</label>
+              <select :disabled="isReadOnly" v-model="selectedPresetIndex" @change="applyPreset" class="w-full text-xs border-2 border-slate-900 rounded-lg p-1.5 bg-slate-50 font-bold disabled:opacity-50">
+                <option v-for="(preset, idx) in currentPresets" :key="idx" :value="idx">{{ preset.name }}</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-slate-600 font-bold text-xs block">ルール名（記録用）</label>
+              <input :disabled="isReadOnly" type="text" v-model="currentRule.name" @change="syncFields('currentRule')" class="w-full border-2 border-slate-900 rounded-lg p-1.5 mt-0.5 text-xs text-slate-800 font-black bg-white disabled:opacity-50">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <label class="text-slate-600 font-bold block">持ち点</label>
+                <input :disabled="isReadOnly" type="number" v-model.number="currentRule.startingPoints" @change="syncFields('currentRule')" class="w-full border-2 border-slate-900 rounded-lg p-1.5 mt-0.5 text-slate-900 font-mono font-black disabled:opacity-50" step="1000">
+              </div>
+              <div>
+                <label class="text-slate-600 font-bold block">返し点</label>
+                <input :disabled="isReadOnly" type="number" v-model.number="currentRule.returnPoints" @change="syncFields('currentRule')" class="w-full border-2 border-slate-900 rounded-lg p-1.5 mt-0.5 text-slate-900 font-mono font-black disabled:opacity-50" step="1000">
+              </div>
+            </div>
+
+            <div>
+              <label class="text-xs font-bold text-slate-600 block mb-1">
+                ウマ ({{ sessionConfig.gameMode === '4p' ? '1着 / 2着 / 3着 / 4着' : '1着 / 2着 / 3着' }})
+              </label>
+              <div class="grid gap-1" :class="sessionConfig.gameMode === '4p' ? 'grid-cols-4' : 'grid-cols-3'">
+                <input :disabled="isReadOnly" v-for="(u, uIdx) in currentRule.uma" :key="uIdx" type="number" v-model.number="currentRule.uma[uIdx]" @change="syncFields('currentRule')" class="border-2 border-slate-900 rounded-lg p-1 text-center text-xs font-mono font-black disabled:opacity-50">
+              </div>
+            </div>
+
+            <button v-if="!isReadOnly" @click="saveNewPreset" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black py-2 rounded-xl transition border-2 border-slate-900 font-heading">
+              現在の設定をプリセット保存
+            </button>
+          </section>
+
+        </div>
+
+        <!-- 右カラム: 半荘入力 & 対局履歴 -->
+        <div class="lg:col-span-2 space-y-6">
+
+          <!-- スコア入力フォーム -->
+          <section v-if="!isReadOnly && !isRoomClosed" class="card-panel p-5 rounded-2xl space-y-4">
+            <div class="flex flex-wrap justify-between items-center border-b-2 border-slate-900/20 pb-2 gap-2">
+              <div>
+                <h3 class="font-black text-sm text-slate-900 font-heading">
+                  📝 第 {{ activeHistory.length + 1 }} 回戦 スコア入力
+                </h3>
+                <span class="text-[11px] text-rose-700 font-bold">適用: {{ currentRule.name || 'カスタムルール' }}</span>
+              </div>
+              <span class="text-xs font-mono font-black px-2 py-1 rounded-md border border-slate-900" :class="isPointsValid ? 'bg-emerald-200 text-emerald-900' : 'bg-rose-200 text-rose-900'">
+                合計: {{ totalInputPoints.toLocaleString() }} / {{ (currentRule.startingPoints * activePlayers.length).toLocaleString() }} 点
+              </span>
+            </div>
+
+            <!-- 倍率指定バー -->
+            <div class="flex items-center justify-between bg-slate-100 p-2.5 rounded-xl border-2 border-slate-900 text-xs">
+              <span class="font-black text-slate-900 flex items-center gap-1 font-heading">
+                🔥 この半荘のポイント倍率:
+              </span>
+              <div class="flex items-center gap-1">
+                <button v-for="m in [1, 1.5, 2, 3]" :key="m" @click="gameMultiplier = m" :class="gameMultiplier === m ? 'bg-rose-600 text-white font-black border-2 border-slate-900' : 'bg-white text-slate-800 border-2 border-slate-900/50 hover:bg-slate-100'" class="px-2 py-1 rounded-lg text-xs transition font-mono">
+                  x{{ m }}
+                </button>
+                <div class="flex items-center gap-0.5 ml-1">
+                  <input type="number" v-model.number="gameMultiplier" class="w-14 border-2 border-slate-900 rounded-lg px-1 py-0.5 text-center font-mono font-black text-xs bg-white" step="0.5" min="0.1">
+                  <span class="text-slate-800 font-black">倍</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-3">
+              <div v-for="(p, idx) in activeInput" :key="idx" class="p-3.5 rounded-xl bg-slate-50 border-2 border-slate-900 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-black text-slate-900 w-32 truncate font-heading">{{ activePlayers[idx] }}</span>
+                  <div class="flex-1 flex items-center justify-end gap-1">
+                    <input type="number" v-model.number="p.rawScore" @input="syncFields('currentInput')" class="w-32 border-2 border-slate-900 rounded-lg px-2 py-1 text-sm font-mono font-black text-right bg-white" step="100">
+                    <span class="text-xs font-bold text-slate-600">点</span>
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-end gap-1 pt-1 border-t border-slate-300">
+                  <div class="flex gap-0.5">
+                    <button @click="adjustScore(idx, -10000)" class="btn-score btn-score-10k-minus">-1万</button>
+                    <button @click="adjustScore(idx, 10000)" class="btn-score btn-score-10k-plus">+1万</button>
+                  </div>
+                  <div class="flex gap-0.5 ml-1">
+                    <button @click="adjustScore(idx, -1000)" class="btn-score btn-score-1k-minus">-1千</button>
+                    <button @click="adjustScore(idx, 1000)" class="btn-score btn-score-1k-plus">+1千</button>
+                  </div>
+                  <div class="flex gap-0.5 ml-1">
+                    <button @click="adjustScore(idx, -100)" class="btn-score btn-score-100-minus">-百</button>
+                    <button @click="adjustScore(idx, 100)" class="btn-score btn-score-100-plus">+百</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button @click="commitGame" :disabled="!isPointsValid" class="w-full bg-rose-600 text-white font-black py-3 rounded-xl hover:bg-rose-700 transition disabled:opacity-40 disabled:cursor-not-allowed border-2 border-slate-900 shadow-md font-heading text-sm">
+              この半荘を記録する ({{ gameMultiplier !== 1 ? `x${gameMultiplier}倍適用` : '等倍' }})
+            </button>
+          </section>
+
+          <!-- 閲覧者用メッセージ -->
+          <div v-else-if="!isRoomClosed" class="card-panel bg-blue-50/95 p-4 rounded-2xl text-center space-y-1">
+            <p class="text-xs font-black text-blue-950 font-heading">👀 閲覧専用モードで参加中</p>
+            <p class="text-[11px] font-bold text-blue-800">代表者（ホスト）がスコアを入力すると、自動でリアルタイム更新されます。</p>
+          </div>
+
+          <!-- 対局履歴 -->
+          <section v-if="allHistorySorted.length > 0" class="card-panel p-5 rounded-2xl space-y-4">
+            <h3 class="font-black text-sm text-slate-900 border-b-2 border-slate-900/20 pb-2 font-heading">📜 対局履歴 (全 {{ allHistorySorted.length }} 半荘)</h3>
+
+            <div class="space-y-3">
+              <div v-for="game in allHistorySorted" :key="game.id" 
+                   class="border-2 border-slate-900 rounded-xl p-3 transition" 
+                   :class="game.excluded ? 'bg-slate-200/70 opacity-60' : 'bg-slate-50'">
+                
+                <div class="flex justify-between items-center text-xs pb-1 mb-2 border-b border-slate-300">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="font-black text-slate-900 font-heading">{{ game.title }}</span>
+                    <span v-if="game.multiplier && game.multiplier !== 1" class="text-[10px] bg-rose-200 text-rose-900 font-black border border-slate-900 px-1.5 py-0.5 rounded">
+                      🔥 x{{ game.multiplier }}倍
+                    </span>
+                    <span class="text-[10px] bg-slate-200 text-slate-800 border border-slate-900 px-1.5 py-0.5 rounded font-bold">
+                      {{ game.mode === '3p' ? '3人麻雀' : '4人麻雀' }}
+                    </span>
+                    <span class="text-[10px] bg-slate-200 text-slate-800 border border-slate-900 px-1.5 py-0.5 rounded font-bold">
+                      {{ game.ruleName }}
+                    </span>
+                    <span v-if="game.excluded" class="text-[10px] bg-rose-200 text-rose-900 font-black px-1.5 py-0.5 rounded">
+                      除外中
+                    </span>
+                  </div>
+                  <div v-if="!isReadOnly && !isRoomClosed">
+                    <button v-if="!game.excluded" @click="toggleExclude(game.id, true)" class="text-rose-600 hover:text-rose-800 text-[11px] font-black">
+                      除外
+                    </button>
+                    <button v-else @click="toggleExclude(game.id, false)" class="text-blue-700 hover:text-blue-900 text-[11px] font-black">
+                      ↩ 復元
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid gap-1.5 text-xs" :class="game.mode === '3p' ? 'grid-cols-3' : 'grid-cols-4'">
+                  <div v-for="res in game.results" :key="res.name" class="p-2 rounded-lg border-2 border-slate-900" :class="game.excluded ? 'bg-slate-200' : 'bg-white'">
+                    <div class="flex justify-between text-[11px] font-bold text-slate-500">
+                      <span>{{ res.rankDisplay }}</span>
+                      <span>{{ res.rawScore.toLocaleString() }}点</span>
+                    </div>
+                    <div class="font-black text-slate-900 truncate mt-0.5 font-heading">{{ res.name }}</div>
+                    <div class="font-mono font-black mt-1" :class="res.point >= 0 ? 'text-blue-700' : 'text-rose-700'">
+                      {{ res.point > 0 ? '+' : '' }}{{ res.point.toFixed(1) }} pt
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ==================== 2. 過去の対戦結果画面（ページネーション ＆ 開閉リスト） ==================== -->
+    <main v-show="currentTab === 'archives'" class="space-y-4">
+      <section class="card-panel p-5 rounded-2xl">
+        <div class="flex justify-between items-center border-b-2 border-slate-900/20 pb-3 mb-4">
+          <div>
+            <h2 class="font-black text-base text-slate-900 flex items-center gap-2 font-heading">
+              📚 保存された過去の対戦結果一覧
+            </h2>
+            <span class="text-xs font-bold text-slate-600">全 {{ sessionArchives.length }} 件 (タップで詳細開閉)</span>
+          </div>
+          <button @click="currentTab = 'active'" class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-1.5 rounded-xl text-xs border-2 border-slate-900 transition">
+            ◀ 対局画面へ戻る
+          </button>
+        </div>
+
+        <div v-if="sessionArchives.length === 0" class="text-center py-12 text-slate-500 font-bold text-sm">
+          まだ保存された対戦結果はありません。「対局を終了」から保存できます。
+        </div>
+
+        <div v-else class="space-y-3">
+          <!-- 1行要約リスト（クリックで開閉） -->
+          <div v-for="session in paginatedArchives" :key="session.id" class="border-2 border-slate-900 rounded-2xl bg-slate-50 overflow-hidden transition shadow-sm">
+            
+            <!-- リストヘッダー（常に表示：日付 / トップ勝者 / ポイント） -->
+            <div @click="toggleArchiveDetail(session.id)" class="p-3.5 flex flex-wrap justify-between items-center gap-2 cursor-pointer hover:bg-slate-100 transition select-none">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-black text-slate-900 font-heading">{{ session.date }}</span>
+                <span class="text-[10px] bg-slate-200 text-slate-800 border border-slate-900 px-1.5 py-0.5 rounded font-bold">
+                  {{ session.mode === '3p' ? '3人' : '4人' }} ({{ session.totalGames }}半荘)
+                </span>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <div class="text-xs font-bold flex items-center gap-1.5">
+                  <span class="text-slate-500">🏆 勝者:</span>
+                  <span class="font-black text-slate-900 font-heading">{{ getTopPlayer(session).name }}</span>
+                  <span class="font-mono font-black text-blue-700">
+                    (+{{ getTopPlayer(session).point.toFixed(1) }} pt)
+                  </span>
+                </div>
+                <span class="text-xs text-slate-400 font-mono transition-transform" :class="expandedArchiveIds.includes(session.id) ? 'rotate-180' : ''">
+                  ▼
+                </span>
+              </div>
+            </div>
+
+            <!-- アコーディオン詳細パネル（展開時のみ表示） -->
+            <div v-if="expandedArchiveIds.includes(session.id)" class="p-4 border-t-2 border-slate-900/15 bg-white space-y-3">
+              <div class="flex justify-between items-center text-xs pb-1 border-b border-slate-200">
+                <span class="text-slate-500 font-bold">{{ session.totalGames }}半荘の最終結果</span>
+                <button v-if="!isReadOnly && !isRoomClosed" @click.stop="deleteArchive(session.id)" class="text-rose-600 hover:text-rose-800 font-black">
+                  この履歴を削除
+                </button>
+              </div>
+
+              <!-- プレイヤー別確定結果 -->
+              <div class="grid gap-2" :class="session.players.length === 3 ? 'grid-cols-3' : 'grid-cols-2 md:grid-cols-4'">
+                <div v-for="p in session.players" :key="p.name" class="bg-slate-50 p-2.5 rounded-xl border-2 border-slate-900">
+                  <div class="font-black text-xs text-slate-800 truncate font-heading">{{ p.name }}</div>
+                  <div class="flex justify-between items-baseline mt-1 font-mono">
+                    <span class="text-xs font-black" :class="p.point >= 0 ? 'text-blue-700' : 'text-rose-700'">
+                      {{ p.point > 0 ? '+' : '' }}{{ p.point.toFixed(1) }} pt
+                    </span>
+                    <span v-if="session.adjustment" class="text-[11px] font-black text-slate-500">
+                      最終 {{ p.final > 0 ? '+' : '' }}{{ p.final.toFixed(1) }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="session.adjustment" class="bg-sky-50 p-2.5 rounded-xl border-2 border-slate-900 text-xs font-bold text-sky-950 space-y-1">
+                <div class="font-black font-heading">⚖️ PT調整 {{ session.adjustment.total.toFixed(1) }}pt（{{ adjustMethodLabel(session.adjustment.method) }}）{{ session.adjustment.receiver ? `／${session.adjustment.receiver} が受け取り` : '／各自から差し引き' }}</div>
+                <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-slate-700">
+                  <span v-for="p in session.players" :key="p.name">{{ p.name }}: {{ (p.adjustment || 0).toFixed(1) }}pt</span>
+                </div>
+              </div>
+
+              <!-- ポイント移動結果 -->
+              <div v-if="session.transfers && session.transfers.length > 0" class="bg-emerald-100/70 p-2.5 rounded-xl border-2 border-slate-900 text-xs space-y-1">
+                <div class="text-[11px] font-black text-emerald-950 mb-1 font-heading">ポイント移動:</div>
+                <div v-for="(st, stIdx) in session.transfers" :key="stIdx" class="flex justify-between items-center text-slate-800 font-bold">
+                  <div>
+                    <span class="text-rose-700">{{ st.from }}</span>
+                    <span class="text-slate-400 mx-1">➔</span>
+                    <span class="text-emerald-700">{{ st.to }}</span>
+                  </div>
+                  <span class="font-mono font-black text-slate-900">{{ st.amount.toFixed(1) }} pt</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- ページネーションコントローラー -->
+          <div v-if="totalPages > 1" class="flex justify-center items-center gap-2 pt-3">
+            <button @click="currentArchivePage--" :disabled="currentArchivePage === 1" class="bg-white hover:bg-slate-100 text-slate-800 font-black px-3 py-1 rounded-lg border-2 border-slate-900 text-xs disabled:opacity-40 disabled:cursor-not-allowed">
+              前へ
+            </button>
+            <span class="text-xs font-black text-slate-800 font-mono">
+              {{ currentArchivePage }} / {{ totalPages }}
+            </span>
+            <button @click="currentArchivePage++" :disabled="currentArchivePage === totalPages" class="bg-white hover:bg-slate-100 text-slate-800 font-black px-3 py-1 rounded-lg border-2 border-slate-900 text-xs disabled:opacity-40 disabled:cursor-not-allowed">
+              次へ
+            </button>
+          </div>
+
+        </div>
+      </section>
+    </main>
+
+    <!-- ==================== 対局復帰確認モーダル ==================== -->
+    <div v-if="isResumeModalOpen" class="modal-overlay">
+      <div class="card-panel rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+        <div class="text-center space-y-1">
+          <div class="text-4xl animate-pulse">🔄</div>
+          <h2 class="text-xl font-black font-heading text-slate-900">前回の対局データがあります</h2>
+          <p class="text-xs font-bold text-slate-600">中断された対局に復帰しますか？</p>
+        </div>
+
+        <div class="bg-slate-100 p-3 rounded-2xl border-2 border-slate-900 text-xs space-y-1">
+          <div class="flex justify-between"><span class="text-slate-500">形式:</span><span class="font-black">{{ cachedSessionState?.sessionConfig?.gameMode === '4p' ? '4人麻雀' : '3人麻雀' }}</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">終了回戦:</span><span class="font-black">{{ cachedSessionState?.history?.filter(g => !g.excluded).length || 0 }} 半荘</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">メンバー:</span><span class="font-black truncate max-w-[180px]">{{ cachedSessionState?.playerNames?.join(', ') }}</span></div>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button @click="discardCachedSession" class="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-black py-2.5 rounded-xl text-xs transition border-2 border-slate-900 font-heading">
+            いいえ（破棄）
+          </button>
+          <button @click="resumeCachedSession" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 rounded-xl text-xs transition border-2 border-slate-900 shadow-sm font-heading">
+            はい（対局に復帰）
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 対局開始セットアップモーダル ==================== -->
+    <div v-if="isStartModalOpen" class="modal-overlay">
+      <div class="card-panel rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl modal-body-scroll">
+        <div class="text-center space-y-1">
+          <div class="text-4xl">🀄</div>
+          <h2 class="text-xl font-black font-heading text-slate-900">新しい対局を開始</h2>
+          <p class="text-xs font-bold text-slate-600">形式・メンバーを設定します（対局中固定）</p>
+        </div>
+
+        <div class="space-y-4 text-xs">
+          <!-- 1. 形式選択 -->
+          <div>
+            <label class="block font-black text-slate-800 mb-1 font-heading">1. 対戦形式</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" @click="tempSetup.gameMode = '4p'" :class="tempSetup.gameMode === '4p' ? 'bg-rose-600 text-white font-black border-slate-900' : 'bg-slate-100 text-slate-800 border-slate-900/40'" class="p-2.5 rounded-xl border-2 text-center transition font-heading">
+                4人麻雀 (ヨンマ)
+              </button>
+              <button type="button" @click="tempSetup.gameMode = '3p'" :class="tempSetup.gameMode === '3p' ? 'bg-rose-600 text-white font-black border-slate-900' : 'bg-slate-100 text-slate-800 border-slate-900/40'" class="p-2.5 rounded-xl border-2 text-center transition font-heading">
+                3人麻雀 (サンマ)
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. メンバー入力 -->
+          <div>
+            <label class="block font-black text-slate-800 mb-1 font-heading">2. プレイヤー名</label>
+            <div class="grid gap-1.5" :class="tempSetup.gameMode === '4p' ? 'grid-cols-2' : 'grid-cols-3'">
+              <div v-for="idx in (tempSetup.gameMode === '4p' ? 4 : 3)" :key="idx">
+                <input type="text" v-model="tempSetup.playerNames[idx - 1]" :placeholder="`プレイヤー${String.fromCharCode(64 + idx)}`" class="w-full border-2 border-slate-900 rounded-xl p-2 text-xs font-black bg-white focus:ring-2 focus:ring-rose-500">
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 接続形式 -->
+          <div>
+            <label class="block font-black text-slate-800 mb-1 font-heading">3. 共有・同期形式</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" @click="tempSetup.connectionType = 'room'" :class="tempSetup.connectionType === 'room' ? 'bg-rose-50 border-rose-600 text-rose-900 font-black' : 'bg-slate-100 border-slate-900/40 text-slate-700'" class="p-2 rounded-xl border-2 text-left transition">
+                <div class="font-black font-heading">🌐 ルームを作成</div>
+                <div class="text-[10px] font-bold text-slate-500 mt-0.5">URLで他メンバーと同期</div>
+              </button>
+              <button type="button" @click="tempSetup.connectionType = 'local'" :class="tempSetup.connectionType === 'local' ? 'bg-rose-50 border-rose-600 text-rose-900 font-black' : 'bg-slate-100 border-slate-900/40 text-slate-700'" class="p-2 rounded-xl border-2 text-left transition">
+                <div class="font-black font-heading">📱 ローカル</div>
+                <div class="text-[10px] font-bold text-slate-500 mt-0.5">この端末1台で記録</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- 4. 権限設定 -->
+          <div v-if="tempSetup.connectionType === 'room'" class="p-3 bg-rose-50 rounded-2xl border-2 border-slate-900 space-y-1.5">
+            <label class="block font-black text-rose-950 text-[11px] font-heading">4. ルーム操作権限の設定</label>
+            <div class="space-y-1">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" v-model="tempSetup.controlMode" value="hostOnly" class="text-rose-600">
+                <span class="text-slate-800 font-black text-[11px]">代表者（あなた）のみ入力（他は閲覧のみ）</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" v-model="tempSetup.controlMode" value="all" class="text-rose-600">
+                <span class="text-slate-800 font-black text-[11px]">参加メンバー全員が入力可能</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button @click="isStartModalOpen = false" class="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-black py-2.5 rounded-xl text-xs transition border-2 border-slate-900 font-heading">
+            キャンセル
+          </button>
+          <button @click="confirmStartSession" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black py-2.5 rounded-xl text-xs transition border-2 border-slate-900 shadow-sm font-heading">
+            対局を開始する
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 終了モーダル ==================== -->
+    <div v-if="isFinishModalOpen" class="modal-overlay">
+      <div class="card-panel rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl modal-body-scroll">
+        <div class="text-center space-y-1">
+          <div class="text-4xl">🎉</div>
+          <h2 class="text-2xl font-black font-heading text-slate-900">対局お疲れ様でした！</h2>
+          <p class="text-xs font-bold text-slate-600">全 {{ activeHistory.length }} 半荘の最終集計結果です</p>
+        </div>
+
+        <div class="border-2 border-slate-900 rounded-2xl overflow-hidden text-xs">
+          <table class="w-full text-left">
+            <thead class="bg-slate-200 text-slate-800 font-black border-b-2 border-slate-900 font-heading">
+              <tr>
+                <th class="p-2.5">プレイヤー</th>
+                <th class="p-2.5 text-right">確定ポイント</th>
+                <th v-if="hasAdjustment" class="p-2.5 text-right">調整</th>
+                <th v-if="hasAdjustment" class="p-2.5 text-right">最終</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y-2 divide-slate-200">
+              <tr v-for="(name, idx) in activePlayers" :key="idx" class="hover:bg-slate-50">
+                <td class="p-2 font-black text-slate-900 font-heading">{{ name }}</td>
+                <td class="p-2 text-right font-mono font-black whitespace-nowrap" :class="totalPointsWithBonus[idx] >= 0 ? 'text-blue-700' : 'text-rose-700'">
+                  {{ totalPointsWithBonus[idx] > 0 ? '+' : '' }}{{ totalPointsWithBonus[idx].toFixed(1) }} pt
+                </td>
+                <td v-if="hasAdjustment" class="p-2 text-right font-mono font-black text-sky-800 whitespace-nowrap">
+                  -{{ formatPt(adjustmentShares[idx]) }}
+                </td>
+                <td v-if="hasAdjustment" class="p-2 text-right font-mono font-black whitespace-nowrap" :class="finalUnits[idx] >= 0 ? 'text-blue-700' : 'text-rose-700'">
+                  {{ formatPt(finalUnits[idx], true) }} pt
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- PT調整 -->
+        <div class="bg-sky-50/90 border-2 border-slate-900 p-3.5 rounded-2xl space-y-3 text-xs">
+          <div class="font-black text-sky-950 flex justify-between font-heading">
+            <span>⚖️ PT調整</span>
+            <span v-if="hasAdjustment">合計 {{ formatPt(adjustmentTotal) }} pt</span>
+          </div>
+
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" v-for="m in adjustMethods" :key="m.value" @click="setAdjustMethod(m.value)" :class="adjustment.method === m.value ? 'bg-sky-700 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-900/40 hover:bg-slate-100'" class="px-2.5 py-1.5 rounded-xl border-2 font-black transition">
+              {{ m.label }}
+            </button>
+          </div>
+
+          <div v-if="adjustment.method === 'equal' || adjustment.method === 'top'" class="flex items-center gap-1.5">
+            <span class="font-black text-slate-800">調整ptの合計</span>
+            <input type="number" v-model.number="adjustment.total" @input="syncFields('tableFee')" class="w-24 border-2 border-slate-900 rounded-lg px-2 py-1 text-right font-mono font-black bg-white" step="1" min="0">
+            <span class="font-black text-slate-700">pt</span>
+          </div>
+
+          <div v-if="adjustment.method === 'tiered'" class="grid gap-1.5" :class="activePlayers.length === 4 ? 'grid-cols-2' : 'grid-cols-3'">
+            <label v-for="(p, rIdx) in activePlayers" :key="rIdx" class="flex items-center gap-1">
+              <span class="font-black text-slate-800 w-8 shrink-0">{{ rIdx + 1 }}位</span>
+              <input type="number" v-model.number="adjustment.tiers[rIdx]" @input="syncFields('tableFee')" class="w-full min-w-0 border-2 border-slate-900 rounded-lg px-2 py-1 text-right font-mono font-black bg-white" step="1" min="0">
+              <span class="font-black text-slate-700">pt</span>
+            </label>
+          </div>
+
+          <div v-if="adjustment.method === 'custom'" class="grid gap-1.5" :class="activePlayers.length === 4 ? 'grid-cols-2' : 'grid-cols-3'">
+            <label v-for="(p, pIdx) in activePlayers" :key="pIdx" class="flex items-center gap-1">
+              <span class="font-black text-slate-800 w-16 shrink-0 truncate font-heading">{{ p }}</span>
+              <input type="number" v-model.number="adjustment.custom[pIdx]" @input="syncFields('tableFee')" class="w-full min-w-0 border-2 border-slate-900 rounded-lg px-2 py-1 text-right font-mono font-black bg-white" step="1" min="0">
+              <span class="font-black text-slate-700">pt</span>
+            </label>
+          </div>
+
+          <div v-if="adjustment.method !== 'none'" class="flex items-center gap-1.5">
+            <span class="font-black text-slate-800 shrink-0">受け取り</span>
+            <select v-model.number="adjustment.payer" @change="syncFields('tableFee')" class="flex-1 min-w-0 border-2 border-slate-900 rounded-lg p-1.5 bg-white font-black">
+              <option :value="-1">受け取りなし（差し引くだけ）</option>
+              <option v-for="(p, pIdx) in activePlayers" :key="pIdx" :value="pIdx">{{ p }} が受け取る</option>
+            </select>
+          </div>
+
+          <p v-if="hasAdjustment" class="text-[11px] font-bold text-sky-900">
+            {{ adjustment.payer >= 0 ? `${activePlayers[adjustment.payer]} が受け取る分を下のポイント移動に含めています` : '各自のptから差し引くだけで、ポイント移動には含みません' }}
+          </p>
+        </div>
+
+        <div class="bg-emerald-100/90 border-2 border-slate-900 p-3.5 rounded-2xl space-y-2">
+          <div class="text-xs font-black text-emerald-950 flex justify-between font-heading">
+            <span>最少移動ルート</span>
+            <span>{{ transfers.length }} 回</span>
+          </div>
+          <div v-if="transfers.length === 0" class="text-xs font-bold text-emerald-800">ポイントの移動はありません</div>
+          <div v-for="(s, idx) in transfers" :key="idx" class="bg-white p-2.5 rounded-xl border-2 border-slate-900 flex justify-between text-xs font-bold">
+            <div>
+              <span class="text-rose-700 font-black">{{ s.from }}</span>
+              <span class="text-slate-400 mx-1">➔</span>
+              <span class="text-emerald-700 font-black">{{ s.to }}</span>
+            </div>
+            <span class="font-black font-mono text-slate-900">{{ formatPt(s.amount) }} pt</span>
+          </div>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button @click="isFinishModalOpen = false" class="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-black py-2.5 rounded-xl text-xs transition border-2 border-slate-900 font-heading">
+            対局に戻る
+          </button>
+          <button @click="archiveAndReset" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 rounded-xl text-xs transition border-2 border-slate-900 shadow-md font-heading">
+            結果を保存して対局を終了
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- フッター -->
+    <footer class="card-panel p-4 rounded-2xl text-center text-xs font-bold text-slate-600 space-y-2">
+      <nav class="flex flex-wrap justify-center gap-x-4 gap-y-1">
+        <a href="guide.html" class="hover:underline">使い方・用語解説</a>
+        <a href="terms.html" class="hover:underline">利用規約</a>
+        <a href="privacy.html" class="hover:underline">プライバシーポリシー</a>
+      </nav>
+      <p class="text-[11px] text-slate-500">本サービスは点数計算・成績記録のためのツールです。金銭を賭ける行為は法律で禁止されています。</p>
+    </footer>
+
+  </div>
+
+  <!-- 広告枠（操作ボタンから離したページ最下部。ads.js で設定するまで非表示） -->
+  <aside id="ad-bottom" class="max-w-5xl mx-auto mt-6 relative z-10 card-panel p-3 rounded-2xl" aria-label="広告" hidden></aside>
+
+  <script src="shared/calc.js"></script>
+  <script src="room-client.js"></script>
+  <script src="app.js"></script>
+  <script src="ads.js"></script>
+</body>
+</html>

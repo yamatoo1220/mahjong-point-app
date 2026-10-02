@@ -4,9 +4,10 @@
   "main": "server/index.js",
   "compatibility_date": "2026-09-01",
 
-  // index.html / app.js / style.css をそのまま静的配信する（除外対象は .assetsignore）
+  // 公開版の画面（public-site/ + shared/ を dist/ にまとめて配信）
+  "build": { "command": "node scripts/build-public.mjs" },
   "assets": {
-    "directory": "./",
+    "directory": "./dist",
     "run_worker_first": ["/api/*"]
   },
 
@@ -16,7 +17,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
 
   "vars": {
-    // 別オリジン（例: Vercel）から API を使う場合はカンマ区切りで許可する。空なら同一オリジンのみ
+    // 別オリジンから API を使う場合はカンマ区切りで許可する。空なら同一オリジンのみ
     "ALLOWED_ORIGINS": ""
   }
 }

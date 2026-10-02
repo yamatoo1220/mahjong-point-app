@@ -1,0 +1,30 @@
+/* 使い方・規約などの読み物ページ用 */
+.doc-wrap {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px;
+  position: relative;
+  z-index: 10;
+}
+.doc {
+  line-height: 1.85;
+  font-size: 15px;
+  padding: 24px 20px;
+  border-radius: 1.25rem;
+}
+.doc h1 { font-family: 'M PLUS Rounded 1c', sans-serif; font-size: 1.6rem; font-weight: 900; margin: 0 0 0.25rem; }
+.doc h2 { font-family: 'M PLUS Rounded 1c', sans-serif; font-size: 1.15rem; font-weight: 900; margin: 2rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 2px solid rgba(15, 23, 42, 0.15); }
+.doc h3 { font-weight: 900; font-size: 1rem; margin: 1.25rem 0 0.25rem; }
+.doc p, .doc ul, .doc ol, .doc table { margin: 0.5rem 0; }
+.doc ul, .doc ol { padding-left: 1.4em; }
+.doc ul { list-style: disc; }
+.doc ol { list-style: decimal; }
+.doc .meta { color: #64748b; font-size: 0.85rem; font-weight: 700; }
+.doc .note { background: #fef3c7; border: 2px solid #0f172a; border-radius: 0.75rem; padding: 0.75rem 1rem; font-weight: 700; }
+.doc table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+.doc th, .doc td { border: 1px solid #cbd5e1; padding: 0.4rem 0.6rem; text-align: left; }
+.doc th { background: #f1f5f9; }
+.doc-table-scroll { overflow-x: auto; }
+.doc a { color: #be123c; font-weight: 700; text-decoration: underline; }
+.doc-nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; justify-content: center; margin-top: 1rem; font-size: 0.85rem; font-weight: 700; }
+.doc-nav a { color: #fff; text-decoration: underline; }
