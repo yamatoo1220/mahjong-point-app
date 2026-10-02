@@ -1,0 +1,28 @@
+{
+  "name": "mahjong-point-app",
+  "version": "1.0.0",
+  "description": "麻雀ポイント数えるくん",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yamatoo1220/mahjong-point-app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/yamatoo1220/mahjong-point-app/issues"
+  },
+  "homepage": "https://github.com/yamatoo1220/mahjong-point-app#readme",
+  "devDependencies": {
+    "wrangler": "^4.146.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261001.1": true
+  },
+  "private": true
+}
