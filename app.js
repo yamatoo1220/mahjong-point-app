@@ -11,6 +11,27 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const auth = firebase.auth();
+
+// 匿名認証（ホスト判定とセキュリティルールに使う uid を取得する）
+const authReady = new Promise((resolve, reject) => {
+  auth.onAuthStateChanged(user => {
+    if (user) resolve(user);
+  });
+  auth.signInAnonymously().catch(err => {
+    console.error('匿名認証に失敗しました', err);
+    reject(err);
+  });
+});
+authReady.catch(() => {}); // 失敗時の処理は利用側（ルーム作成・参加）で行う
+
+const MAX_ROOM_CREATE_ATTEMPTS = 20;
+
+// 回戦タイトルを除外されていない半荘だけで振り直す
+const renumberHistory = (games) => {
+  let count = 1;
+  return games.map(g => (g.excluded ? g : { ...g, title: `第 ${count++} 回戦` }));
+};
 
 const { createApp, ref, computed, onMounted, watch } = Vue;
 const { calcGameResults, pointsToUnits, calcFeeShares, calcFeeAdjustments, calcSettlements } = MahjongCalc;
@@ -40,16 +61,16 @@ createApp({
     const isSessionStarted = ref(false);
     const isRoomClosed = ref(false);
     const isHost = ref(false);
-    const hostKey = ref(null);
     const roomId = ref(null);
     let isRemoteUpdating = false;
+    let roomRef = null;
 
     // 対戦設定
     const sessionConfig = ref({
       gameMode: '4p',
       controlMode: 'all',
       status: 'active',
-      hostKey: null
+      hostUid: null
     });
 
     const presetRates = [
@@ -185,7 +206,6 @@ createApp({
           bonusPoints: bonusPoints.value,
           tableFee: tableFee.value,
           history: history.value,
-          sessionArchives: sessionArchives.value,
           roomId: roomId.value
         };
         localStorage.setItem("mahjong_active_session_backup", JSON.stringify(state));
@@ -206,7 +226,6 @@ createApp({
         if (val.bonusPoints) bonusPoints.value = val.bonusPoints;
         tableFee.value = { ...createDefaultTableFee(), ...(val.tableFee || {}) };
         if (val.history) history.value = val.history;
-        if (val.sessionArchives) sessionArchives.value = val.sessionArchives;
         if (val.roomId) listenToRoom(val.roomId);
       }
       isResumeModalOpen.value = false;
@@ -221,62 +240,119 @@ createApp({
     // ==========================================
     // Firebase 同期ロジック
     // ==========================================
+    // ルームで共有する項目（半荘履歴は別途トランザクションで更新する）
+    const buildRoomState = () => ({
+      isSessionStarted: isSessionStarted.value,
+      sessionConfig: sessionConfig.value,
+      currentRule: currentRule.value,
+      rate: rate.value,
+      playerNames: playerNames.value,
+      currentInput: currentInput.value,
+      bonusPoints: bonusPoints.value,
+      tableFee: tableFee.value
+    });
+
+    let hasShownWriteError = false;
+    const handleWriteError = (err) => {
+      console.error('ルームへの保存に失敗しました', err);
+      if (!hasShownWriteError) {
+        hasShownWriteError = true;
+        alert('ルームへの保存に失敗しました。権限がないか、通信が切れている可能性があります。');
+      }
+    };
+
+    // 変更された項目だけを送る（他の人の半荘記録を上書きしない）
     const syncStateToFirebase = () => {
       saveLocalBackup();
       if (isRemoteUpdating || !roomId.value || isReadOnly.value) return;
 
-      const payload = {
-        isSessionStarted: isSessionStarted.value,
-        sessionConfig: sessionConfig.value,
-        currentRule: currentRule.value,
-        rate: rate.value,
-        playerNames: playerNames.value,
-        currentInput: currentInput.value,
-        bonusPoints: bonusPoints.value,
-        tableFee: tableFee.value,
-        history: history.value,
-        sessionArchives: sessionArchives.value,
-        updatedAt: Date.now()
-      };
+      db.ref(`rooms/${roomId.value}`).update({
+        ...buildRoomState(),
+        updatedAt: firebase.database.ServerValue.TIMESTAMP
+      }).catch(handleWriteError);
+    };
 
-      db.ref(`rooms/${roomId.value}`).set(payload);
+    // 半荘履歴はサーバー上の最新値に対して操作を適用する（同時入力でも消えない）
+    const updateRoomHistory = (mutate) => {
+      saveLocalBackup();
+      if (!roomId.value || isReadOnly.value) return;
+
+      const id = roomId.value;
+      db.ref(`rooms/${id}/history`)
+        .transaction(current => renumberHistory(mutate(Array.isArray(current) ? current : [])))
+        .then(() => db.ref(`rooms/${id}/updatedAt`).set(firebase.database.ServerValue.TIMESTAMP))
+        .catch(handleWriteError);
+    };
+
+    const stopListening = () => {
+      if (roomRef) roomRef.off();
+      roomRef = null;
     };
 
     const listenToRoom = (id) => {
+      stopListening();
       roomId.value = id;
 
-      db.ref(`rooms/${id}`).on('value', (snapshot) => {
-        const val = snapshot.val();
-        if (!val) return;
+      authReady.then(user => {
+        if (roomId.value !== id) return;
+        roomRef = db.ref(`rooms/${id}`);
+        let isFirstSnapshot = true;
 
-        isRemoteUpdating = true;
-        isSessionStarted.value = !!val.isSessionStarted;
-        if (val.sessionConfig) {
-          sessionConfig.value = val.sessionConfig;
-          isRoomClosed.value = (val.sessionConfig.status === 'closed');
-        }
-        if (val.currentRule) currentRule.value = val.currentRule;
-        if (val.rate !== undefined) rate.value = val.rate;
-        if (val.playerNames) playerNames.value = val.playerNames;
-        if (val.currentInput) currentInput.value = val.currentInput;
-        if (val.bonusPoints) bonusPoints.value = val.bonusPoints;
-        tableFee.value = { ...createDefaultTableFee(), ...(val.tableFee || {}) };
-        if (val.history) history.value = val.history;
-        if (val.sessionArchives) sessionArchives.value = val.sessionArchives;
+        roomRef.on('value', (snapshot) => {
+          const val = snapshot.val();
+          if (!val) {
+            if (isFirstSnapshot) {
+              alert(`ルーム #${id} が見つかりませんでした。番号を確認してください。`);
+              stopListening();
+              roomId.value = null;
+              window.history.replaceState(null, '', window.location.pathname);
+            }
+            return;
+          }
+          isFirstSnapshot = false;
 
-        const localHostKey = localStorage.getItem(`mahjong_host_${id}`);
-        if (val.sessionConfig?.hostKey && localHostKey === val.sessionConfig.hostKey) {
-          isHost.value = true;
-        } else {
-          isHost.value = false;
-        }
+          isRemoteUpdating = true;
+          isSessionStarted.value = !!val.isSessionStarted;
+          if (val.sessionConfig) {
+            sessionConfig.value = val.sessionConfig;
+            isRoomClosed.value = (val.sessionConfig.status === 'closed');
+          }
+          if (val.currentRule) currentRule.value = val.currentRule;
+          if (val.rate !== undefined) rate.value = val.rate;
+          if (val.playerNames) playerNames.value = val.playerNames;
+          if (val.currentInput) currentInput.value = val.currentInput;
+          if (val.bonusPoints) bonusPoints.value = val.bonusPoints;
+          tableFee.value = { ...createDefaultTableFee(), ...(val.tableFee || {}) };
+          history.value = Array.isArray(val.history) ? val.history : [];
 
-        saveLocalBackup();
+          isHost.value = !!val.sessionConfig?.hostUid && val.sessionConfig.hostUid === user.uid;
 
-        setTimeout(() => {
-          isRemoteUpdating = false;
-        }, 100);
+          saveLocalBackup();
+
+          setTimeout(() => {
+            isRemoteUpdating = false;
+          }, 100);
+        }, (err) => {
+          console.error('ルームの読み込みに失敗しました', err);
+          alert('ルームを読み込めませんでした。通信状況を確認してください。');
+        });
+      }).catch(() => {
+        alert('ルームに接続できませんでした（認証エラー）。時間をおいて再読み込みしてください。');
       });
+    };
+
+    // 空いているルーム番号を確保して作成（既存ルームは上書きしない）
+    const createRoom = async (initialState) => {
+      for (let i = 0; i < MAX_ROOM_CREATE_ATTEMPTS; i++) {
+        const candidate = String(1000 + Math.floor(Math.random() * 9000));
+        const result = await db.ref(`rooms/${candidate}`).transaction(
+          current => (current === null ? initialState : undefined),
+          undefined,
+          false
+        );
+        if (result.committed) return candidate;
+      }
+      throw new Error('空いているルーム番号が見つかりませんでした');
     };
 
     const openStartModal = () => {
@@ -285,7 +361,11 @@ createApp({
       isStartModalOpen.value = true;
     };
 
-    const confirmStartSession = () => {
+    const confirmStartSession = async () => {
+      // 前のルームとの接続を切ってから新しい対局を準備する
+      stopListening();
+      roomId.value = null;
+      isHost.value = false;
       sessionConfig.value.gameMode = tempSetup.value.gameMode;
       sessionConfig.value.controlMode = tempSetup.value.controlMode;
       sessionConfig.value.status = 'active';
@@ -304,15 +384,22 @@ createApp({
       isStartModalOpen.value = false;
 
       if (tempSetup.value.connectionType === 'room') {
-        const newRoomId = Math.floor(1000 + Math.random() * 9000).toString();
-        const generatedHostKey = 'h_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-        sessionConfig.value.hostKey = generatedHostKey;
-        isHost.value = true;
-        localStorage.setItem(`mahjong_host_${newRoomId}`, generatedHostKey);
-
-        window.history.replaceState(null, '', `?room=${newRoomId}`);
-        listenToRoom(newRoomId);
-        syncStateToFirebase();
+        try {
+          const user = await authReady;
+          sessionConfig.value.hostUid = user.uid;
+          const newRoomId = await createRoom({
+            ...buildRoomState(),
+            updatedAt: firebase.database.ServerValue.TIMESTAMP
+          });
+          isHost.value = true;
+          window.history.replaceState(null, '', `?room=${newRoomId}`);
+          listenToRoom(newRoomId);
+        } catch (err) {
+          console.error('ルームの作成に失敗しました', err);
+          alert('ルームを作成できませんでした。この端末だけで記録するローカルモードで開始します。');
+          sessionConfig.value.hostUid = null;
+          saveLocalBackup();
+        }
       } else {
         roomId.value = null;
         window.history.replaceState(null, '', window.location.pathname);
@@ -337,8 +424,9 @@ createApp({
 
     const leaveRoom = () => {
       if (confirm("ルームから退室しますか？")) {
-        if (roomId.value) db.ref(`rooms/${roomId.value}`).off();
+        stopListening();
         roomId.value = null;
+        isHost.value = false;
         isSessionStarted.value = false;
         isRoomClosed.value = false;
         localStorage.removeItem("mahjong_active_session_backup");
@@ -353,6 +441,7 @@ createApp({
         history.value = [];
         localStorage.removeItem("mahjong_active_session_backup");
         syncStateToFirebase();
+        updateRoomHistory(() => []);
       }
     };
 
@@ -431,32 +520,28 @@ createApp({
 
       const results = calcGameResults(rule, rawData, mult);
 
-      history.value.push({
+      const game = {
         id: Date.now(),
-        title: `第 ${activeHistory.value.length + 1} 回戦`,
+        title: '',
         mode: sessionConfig.value.gameMode,
         ruleName: appliedRuleName,
         multiplier: mult,
         results: results,
         excluded: false
-      });
+      };
+      history.value = renumberHistory([...history.value, game]);
 
       gameMultiplier.value = 1;
       resetInputPoints();
       syncStateToFirebase();
+      updateRoomHistory(games => [...games, game]);
     };
 
     const toggleExclude = (id, exclude) => {
-      const item = history.value.find(g => g.id === id);
-      if (item) {
-        item.excluded = exclude;
-        let count = 1;
-        history.value.forEach(g => {
-          if (!g.excluded) {
-            g.title = `第 ${count++} 回戦`;
-          }
-        });
-        syncStateToFirebase();
+      const setExcluded = games => games.map(g => (g.id === id ? { ...g, excluded: exclude } : g));
+      if (history.value.some(g => g.id === id)) {
+        history.value = renumberHistory(setExcluded(history.value));
+        updateRoomHistory(setExcluded);
       }
     };
 
@@ -544,7 +629,6 @@ createApp({
       if (confirm("この対戦結果を削除しますか？")) {
         sessionArchives.value = sessionArchives.value.filter(a => a.id !== id);
         localStorage.setItem("mahjong_archives_storage", JSON.stringify(sessionArchives.value));
-        syncStateToFirebase();
       }
     };
 

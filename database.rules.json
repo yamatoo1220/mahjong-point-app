@@ -1,0 +1,46 @@
+{
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null && newData.exists() && (!data.exists() ? newData.child('sessionConfig/hostUid').val() === auth.uid : (data.child('sessionConfig/status').val() !== 'closed' && (data.child('sessionConfig/controlMode').val() === 'all' || data.child('sessionConfig/hostUid').val() === auth.uid)))",
+        ".validate": "$roomId.matches(/^[0-9]{4}$/) && newData.hasChildren(['sessionConfig'])",
+
+        "sessionConfig": {
+          ".validate": "newData.hasChildren(['gameMode', 'controlMode', 'status', 'hostUid'])",
+          "gameMode": { ".validate": "newData.val() === '4p' || newData.val() === '3p'" },
+          "controlMode": { ".validate": "(newData.val() === 'all' || newData.val() === 'hostOnly') && (!data.exists() || newData.val() === data.val() || data.parent().child('hostUid').val() === auth.uid)" },
+          "status": { ".validate": "newData.val() === 'active' || newData.val() === 'closed'" },
+          "hostUid": { ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())" },
+          "$other": { ".validate": false }
+        },
+
+        "isSessionStarted": { ".validate": "newData.isBoolean()" },
+        "rate": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
+        "updatedAt": { ".validate": "newData.val() === now" },
+
+        "playerNames": {
+          "$i": { ".validate": "$i.matches(/^[0-3]$/) && newData.isString() && newData.val().length <= 30" }
+        },
+        "currentRule": {
+          "name": { ".validate": "newData.isString() && newData.val().length <= 60" }
+        },
+        "currentInput": {
+          "$i": { ".validate": "$i.matches(/^[0-3]$/)" }
+        },
+        "bonusPoints": {
+          "$i": { ".validate": "$i.matches(/^[0-3]$/)" }
+        },
+        "tableFee": {
+          "method": { ".validate": "newData.isString() && newData.val().length <= 10" },
+          "payer": { ".validate": "newData.isNumber()" }
+        },
+        "history": {
+          "$i": { ".validate": "$i.matches(/^[0-9]{1,3}$/) && newData.hasChildren(['id', 'results'])" }
+        },
+
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}
