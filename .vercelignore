@@ -1,0 +1,10 @@
+# 身内版（Vercel）には公開版・サーバー関連のファイルを含めない
+public-site/
+server/
+scripts/
+dist/
+node_modules/
+wrangler.jsonc
+package.json
+package-lock.json
+database.rules.json
